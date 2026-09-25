@@ -228,7 +228,7 @@ for a in "$@"; do
     --forge=*) FORGE=${a#--forge=}; FORGE_SET=1 ;;
     --shape) want_value=shape ;;
     --shape=*) SHAPE=${a#--shape=}; SHAPE_SET=1 ;;
-    --project-dir) want_value=project-dir ;;
+    --project-dir) want_value="project-dir" ;;
     --project-dir=*) PROJECT_DIR=${a#--project-dir=}; PROJECT_DIR_SET=1 ;;
     # yolo never reaches the worker: it is firstmate's merge authority, not a
     # brief input. Refuse it loudly so it is never silently dropped here and then
