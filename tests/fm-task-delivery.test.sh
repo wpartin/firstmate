@@ -270,6 +270,12 @@ test_promote_requires_and_records_the_delivery_contract() {
   assert_grep 'yolo=on' "$meta" "promotion did not record the decided merge posture"
   assert_contains "$out" "ship instructions for mode=direct-PR" "promotion hint did not carry the decided mode"
   [ "$(grep -c '^mode=' "$meta")" = 1 ] || fail "promotion left more than one mode= line in the task record"
+
+  # A promoted scout commits on a ship branch, so it must receive the same working rules a generated ship brief carries.
+  assert_grep "Every comment you write is ONE line" "$home/data/promote-d1/ship-instructions.md" \
+    "promoted ship instructions missing the one-line comment rule"
+  assert_grep "Never add an AI assistant as a commit co-author" "$home/data/promote-d1/ship-instructions.md" \
+    "promoted ship instructions missing the commit co-author prohibition"
   pass "fm-promote: promotion requires the delivery contract and records it exactly once"
 }
 

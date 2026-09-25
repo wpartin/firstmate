@@ -100,6 +100,9 @@ Check and test the toolbelt before pushing:
 ```sh
 while IFS= read -r script; do /bin/bash -n "$script" || exit; done < <(bin/fm-lint.sh --list-files)   # syntax-check the shell surface fm-lint.sh will cover (changed files locally, full set in CI/on main)
 bin/fm-lint.sh   # lint that shell surface plus GitHub workflows via pinned actionlint; the single owner CI and the no-mistakes gate both run
+bin/fm-comment-length-check.sh --project . --base main --head HEAD   # every comment the branch adds must be one line
+bin/fm-commit-trailer-check.sh --project . --base main --head HEAD   # no AI co-author or session-link trailer may reach a commit
+ln -sf ../../bin/fm-commit-msg-hook.sh .git/hooks/commit-msg   # one-time: strip those trailers before a commit exists
 bin/fm-test-run.sh tests/<subject>.test.sh   # one script (primary local focus path, timed)
 bin/fm-test-run.sh tests/<a>.test.sh tests/<b>.test.sh   # several subjects at once: bounded automatic concurrency
 bin/fm-test-run.sh --family pure-contract-unit   # ordinary family-scoped local path (serial, timed)

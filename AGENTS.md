@@ -46,7 +46,7 @@ Shared tracked material is `AGENTS.md`, `README.md`, `CONTRIBUTING.md`, `.tasks.
 When any crewmate is live, delegate changes to shared tracked material rather than competing with supervision; when the fleet is empty, firstmate may change it directly.
 This repo is a shared template, while `.env`, `data/`, `state/`, `config/`, `projects/`, and `.no-mistakes/` are captain-private and gitignored.
 Ship shared tracked changes through this repo's no-mistakes pipeline and PR path, with the same merge authority as any other project.
-Never add an agent name as a commit co-author.
+Never add an agent name as a commit co-author, and never add a session-link trailer to a commit message.
 
 ## 2. Layout and state
 
@@ -401,6 +401,7 @@ The worker reports the PR when CI first becomes green rather than waiting for me
 ### PR ready, landing, and teardown
 
 For PR-based ship tasks, the ready signal depends on mode: `no-mistakes` reports `done [at=<epoch>]: PR <url> checks green` after CI is green, while `direct-PR` reports `done [at=<epoch>]: PR <url>` after opening the PR, each only for a non-draft PR; a lane that deliberately holds a draft declares a wait instead, and `bin/fm-pr-check.sh` refuses to arm merge monitoring on a draft.
+Before handing the captain a branch or a PR body you drafted, measure it with `bin/fm-anti-slop-check.sh`, which reports not applicable for a project that enforces no automated PR quality check, and with `bin/fm-comment-length-check.sh` and `bin/fm-commit-trailer-check.sh`, which apply to every project.
 Run `bin/fm-pr-check.sh <id> <PR url>` with the URL copied from that ready signal or the resolved checks-green `fm-crew-state.sh` line - it records `pr=` and the forge's `pr_head=` when available in the task's meta and arms the watcher's merge poll.
 `bin/fm-dod-lib.sh` owns the named-head gate on that ready signal: a ship `done:` whose named head exists only in the worker's disposable copy is not ready (`bin/fm-crew-state.sh` reports blocked, `bin/fm-pr-check.sh` refuses to register, and a secondmate does not publish that done upstream).
 That blocked reading is the gate working, not a stuck worker, so steer the worker on the commit the refusal names rather than waiting.
