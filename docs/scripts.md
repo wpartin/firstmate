@@ -36,6 +36,7 @@ The shared no-mistakes gate refusal for fleet lifecycle entrypoints is summarize
 | `fm-brief.sh`            | Scaffold ship (explicit `--mode`, plus the project's registered `--forge`), scout, secondmate-charter, and Herdr-lab briefs, with Captain's intent and Firstmate spec subsections on ship/scout |
 | [`fm-dod-lib.sh`](../bin/fm-dod-lib.sh) | Own ship/scout worker role scope, ship definitions of done, the named-head reachability gate on ship `done:` acceptance, and the no-mistakes `--intent` contract |
 | `fm-brief-heading-lib.sh` | Single owner of reading a brief's sections, shared by the `--intent` contract, spawn and promotion validation, and `fm-dispatch-resolve.sh` |
+| `fm-anti-slop-check.sh` | Measure a branch or drafted PR body against the target project's automated PR quality limits, reporting not applicable where none are enforced |
 | `fm-change-range-lib.sh` | One owner of the base and head range the pre-handover branch checks measure |
 | `fm-comment-length-check.sh` | Report multi-line comment runs in the lines a branch adds, while the branch can still be fixed |
 | `fm-commit-trailer-check.sh` | Find, and with `--strip` remove, the AI co-author and session-link trailers a harness adds to a commit message |
