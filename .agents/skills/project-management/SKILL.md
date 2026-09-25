@@ -67,8 +67,9 @@ A forge composes with `no-mistakes`, `direct-PR`, and `no-mistakes-prod-only`, a
 Confirm the source URL, local project name, delivery posture, and autonomy posture, stating the resolved default for each rather than asking the captain to invent one.
 Clone into `projects/<name>` and add the registry entry only after the destination is known to be unused.
 A `no-mistakes` or `no-mistakes-prod-only` project must have an `origin` remote and must complete the initialization procedure below, because a conditional policy's product-facing work runs the pipeline while its internal-only work still takes the direct PR.
-A `direct-PR` project needs an `origin` remote but skips no-mistakes initialization.
-A `local-only` project may have no remote and skips no-mistakes initialization.
+A `direct-PR` project needs an `origin` remote but skips intake no-mistakes initialization.
+A `local-only` project may have no remote and skips intake no-mistakes initialization.
+Every ship worker still initializes no-mistakes in its own worktree for the review pass (`bin/fm-brief.sh`).
 
 ## Create a project
 
