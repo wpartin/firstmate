@@ -4080,3 +4080,32 @@ test_verify_names_the_unresolvable_legacy_id_once
 test_verify_resolves_a_pre_collapse_key_through_its_derived_marker
 test_captain_hold_mutations_address_the_beads_backend
 test_hold_creates_a_captain_row_when_beads_requires_due_without_custom_type
+
+# Holds and new answers land once each on the opt-in fleet activity ledger,
+# carrying the captain's own words; replays and an absent flag write nothing.
+test_hold_and_answers_are_recorded_on_the_ledger() {
+  local home rows
+  home=$(make_home ledger-events)
+  run_captain "$home" hold ledger-quiet --title "Quiet call" --reason "no ledger here" >/dev/null \
+    || fail "hold without the ledger flag failed"
+  assert_absent "$home/state/fleet-ledger.jsonl" "a hold wrote a ledger with the flag absent"
+  : > "$home/config/fleet-ledger"
+  run_captain "$home" hold ledger-call --title "Pick a colour" --reason "blue or green" --until 2026-12-01 >/dev/null \
+    || fail "hold failed"
+  run_captain "$home" hold ledger-call --reason "blue or green" --until 2026-12-01 >/dev/null \
+    || fail "repeated hold failed"
+  printf 'ledger-call\tgreen\tGreen\n' \
+    | run_captain "$home" answers --source "the fleet board" >/dev/null || fail "answers failed"
+  printf 'ledger-call\tgreen\tGreen\n' \
+    | run_captain "$home" answers --source "the fleet board" >/dev/null || fail "replayed answers failed"
+  printf 'Ship it as is.\n' > "$home/direct.txt"
+  run_captain "$home" answer ledger-quiet --decision-file "$home/direct.txt" >/dev/null \
+    || fail "direct answer failed"
+  rows=$(jq -c '[.event, .task, (.reason // .mode), (.until // .source), .words]' "$home/state/fleet-ledger.jsonl")
+  assert_equals '["captain.held","ledger-call","blue or green","2026-12-01",null]
+["captain.answered","ledger-call","answered","the fleet board","green"]
+["captain.answered","ledger-quiet","answered",null,"Ship it as is."]' "$rows" "ledger hold and answer records"
+  pass "holds and new answers are recorded once each on the fleet ledger"
+}
+
+test_hold_and_answers_are_recorded_on_the_ledger

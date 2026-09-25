@@ -544,3 +544,14 @@ run_inbox "$home" drain --ack "$did" >/dev/null || fail "drain --ack failed"
 assert_absent "$home/state/inbox/$did.note" "acked note leaves pending"
 assert_present "$home/state/inbox/handled/$did.note" "acked note is in handled"
 pass "drain --ack still moves the note to handled"
+
+home=$(make_home ledger)
+run_inbox "$home" note "no ledger yet" >/dev/null || fail "note without the ledger failed"
+assert_absent "$home/state/fleet-ledger.jsonl" "a note wrote a ledger with the flag absent"
+: > "$home/config/fleet-ledger"
+lid=$(printf 'log_day=2026-09-24\ntask=pick-colour\nthread=q1\nGreen, please.\n' | run_inbox "$home" note --json - | json_get id)
+run_inbox "$home" reply "$lid" "Recorded green." >/dev/null || fail "reply failed"
+rows=$(jq -c '[.event, .note, .task, .log_day, .thread, .text]' "$home/state/fleet-ledger.jsonl")
+assert_equals "[\"inbox.noted\",\"$lid\",\"pick-colour\",\"2026-09-24\",\"q1\",\"log_day=2026-09-24\\ntask=pick-colour\\nthread=q1\\nGreen, please.\\n\"]
+[\"inbox.replied\",\"$lid\",null,null,null,\"Recorded green.\"]" "$rows" "inbox ledger records"
+pass "note and reply are recorded on the fleet ledger when it is on"

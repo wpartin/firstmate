@@ -18,6 +18,11 @@
 #   bin/fm-merge-outcome-lib.sh  merged ... pr (a recorded PR merge)
 #   bin/fm-merge-local.sh        merged ... local (a local-only landing)
 #   bin/fm-teardown.sh           cleaned_up
+#   bin/fm-captain-hold.sh       held (hold), answered (a new answer, release,
+#                                repair, or reconcile-close record; replays of
+#                                an already recorded answer write none)
+#   bin/fm-inbox.sh              noted (note), replied (reply)
+#   bin/fm-log.sh                learning (learn, called while filing a learning)
 #
 # Usage:
 #   fm-fleet-ledger.sh dispatched <task> <kind> <project> <harness> <model>
@@ -27,6 +32,14 @@
 #   fm-fleet-ledger.sh cleaned_up <task>
 #   fm-fleet-ledger.sh capture
 #   fm-fleet-ledger.sh appended <config> <state>/<task>.status
+#   fm-fleet-ledger.sh held <task> <reason> [<until>]
+#   fm-fleet-ledger.sh answered <task> <mode> <source> <words>
+#   fm-fleet-ledger.sh noted <note-id> <task-or-empty> <log-day-or-empty> <thread-or-empty> <text>
+#   fm-fleet-ledger.sh replied <note-id> <text>
+#   fm-fleet-ledger.sh learning <slug> <title>
+#
+# The noted, replied, and learning records are not about a task; their `task`
+# member is the related task id when one is named, else null.
 #
 # capture appends one task.status record for every complete (newline-ended)
 # line added to a state/<task>.status log since that task's byte offset in
@@ -65,7 +78,7 @@ LOCK="$STATE/.fleet-ledger.lock"
 TEXT_MAX_CHARS=2000
 
 usage() {
-  echo "usage: fm-fleet-ledger.sh dispatched <task> <kind> <project> <harness> <model> | pr_ready <task> <url> | merged <task> pr <url> | merged <task> local | cleaned_up <task> | capture | appended <config> <state>/<task>.status" >&2
+  echo "usage: fm-fleet-ledger.sh dispatched <task> <kind> <project> <harness> <model> | pr_ready <task> <url> | merged <task> pr <url> | merged <task> local | cleaned_up <task> | capture | appended <config> <state>/<task>.status | held <task> <reason> [<until>] | answered <task> <mode> <source> <words> | noted <note-id> <task> <log-day> <thread> <text> | replied <note-id> <text> | learning <slug> <title>" >&2
   exit 2
 }
 
@@ -82,6 +95,11 @@ case "$cmd" in
     case "$#:${3:-}" in 4:pr) [ -n "$4" ] || usage ;; 3:local) ;; *) usage ;; esac
     ;;
   cleaned_up) { [ "$#" -eq 2 ] && task_ok "$2"; } || usage ;;
+  held) { [ "$#" -ge 3 ] && [ "$#" -le 4 ] && task_ok "$2"; } || usage ;;
+  answered) { [ "$#" -eq 5 ] && task_ok "$2" && [ -n "$3" ]; } || usage ;;
+  noted) { [ "$#" -eq 6 ] && task_ok "$2" && { [ -z "$3" ] || task_ok "$3"; }; } || usage ;;
+  replied) { [ "$#" -eq 3 ] && task_ok "$2"; } || usage ;;
+  learning) { [ "$#" -eq 3 ] && task_ok "$2" && [ -n "$3" ]; } || usage ;;
   capture) [ "$#" -eq 1 ] || usage ;;
   appended)
     [ "$#" -eq 3 ] && [ -n "$2" ] || usage
@@ -141,11 +159,12 @@ load_libs() {
 }
 
 # append <event> <task> <jq-object-of-extra-members> [jq --arg pairs...]
+# An empty <task> is written as null.
 append() {
   local event=$1 task=$2 extra=$3 line
   shift 3
   line=$(jq -cn --arg event "$event" --arg task "$task" "$@" \
-    "def n: if . == \"\" then null else . end; {v: 1, ts: (now | floor), event: \$event, task: \$task} + ($extra)") \
+    "def n: if . == \"\" then null else . end; {v: 1, ts: (now | floor), event: \$event, task: (\$task | n)} + ($extra)") \
     || return 1
   printf '%s\n' "$line" >> "$LEDGER"
 }
@@ -228,6 +247,26 @@ case "$cmd" in
     capture_task "$2" || rc=1
     append task.cleaned_up "$2" '{}' || rc=1
     [ "$rc" -ne 0 ] || rm -f -- "$(offset_path "$2")"
+    ;;
+  held)
+    append captain.held "$2" '{reason: $reason[0:'"$TEXT_MAX_CHARS"'], until: ($until | n)}' \
+      --arg reason "$3" --arg until "${4:-}" || rc=1
+    ;;
+  answered)
+    append captain.answered "$2" '{mode: $mode, source: ($source | n), words: $words[0:'"$TEXT_MAX_CHARS"']}' \
+      --arg mode "$3" --arg source "$4" --arg words "$5" || rc=1
+    ;;
+  noted)
+    append inbox.noted "$3" '{note: $note, log_day: ($day | n), thread: ($thread | n), text: $text[0:'"$TEXT_MAX_CHARS"']}' \
+      --arg note "$2" --arg day "$4" --arg thread "$5" --arg text "$6" || rc=1
+    ;;
+  replied)
+    append inbox.replied "" '{note: $note, text: $text[0:'"$TEXT_MAX_CHARS"']}' \
+      --arg note "$2" --arg text "$3" || rc=1
+    ;;
+  learning)
+    append learning.filed "" '{slug: $slug, title: $title[0:'"$TEXT_MAX_CHARS"']}' \
+      --arg slug "$2" --arg title "$3" || rc=1
     ;;
 esac
 [ "$rc" -eq 0 ] || echo "fm-fleet-ledger: could not record $cmd${2:+ for $2}; the ledger may be missing records" >&2

@@ -422,6 +422,31 @@ publish_from_reservation() {  # <request-id> <source> <body> <extra>
   printf '%s\n' "$id"
 }
 
+# Record a new note or reply on the opt-in fleet activity ledger
+# (docs/fleet-ledger.md). The captain's log renders only notes whose body
+# carries a `log_day=YYYY-MM-DD` line; `task=` and `thread=` lines name the
+# hold or thread the note belongs to. Never changes this command's outcome.
+body_field() {  # <body> <name>
+  printf '%s\n' "$1" | sed -n "s/^$2=\\([A-Za-z0-9._:-]*\\)[[:space:]]*\$/\\1/p" | head -n 1
+}
+
+ledger_noted() {  # <id> <body>
+  [ -e "$CONFIG/fleet-ledger" ] || return 0
+  local task day thread
+  task=$(body_field "$2" task)
+  day=$(body_field "$2" log_day)
+  case "$day" in [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) ;; *) day='' ;; esac
+  thread=$(body_field "$2" thread)
+  FM_HOME=$FM_HOME FM_STATE_OVERRIDE=$STATE FM_CONFIG_OVERRIDE=$CONFIG \
+    "$FM_ROOT/bin/fm-fleet-ledger.sh" noted "$1" "$task" "$day" "$thread" "$2" >/dev/null 2>&1 || true
+}
+
+ledger_replied() {  # <id> <body>
+  [ -e "$CONFIG/fleet-ledger" ] || return 0
+  FM_HOME=$FM_HOME FM_STATE_OVERRIDE=$STATE FM_CONFIG_OVERRIDE=$CONFIG \
+    "$FM_ROOT/bin/fm-fleet-ledger.sh" replied "$1" "$2" >/dev/null 2>&1 || true
+}
+
 queue_note() {
   local source=$1 body=$2 extra=${3:-} request_id=${4:-} json=${5:-0}
   local strict=0
@@ -455,6 +480,7 @@ queue_note() {
       return $?
     fi
     mv "$tmp" "$INBOX/$id.note"
+    ledger_noted "$id" "$body"
     summary=$(note_summary_from_body "$body")
     finish_note_result created "$id" "$request_id" "$json" "$strict" "$summary"
     return $?
@@ -465,6 +491,7 @@ queue_note() {
   id="$(date +%s)-${staging_name#.staging-}"
   write_note_file "$tmp" "$id" "$source" "$body" "$extra" ""
   mv "$tmp" "$INBOX/$id.note"
+  ledger_noted "$id" "$body"
   summary=$(note_summary_from_body "$body")
   finish_note_result created "$id" "" "$json" "$strict" "$summary"
 }
@@ -633,6 +660,7 @@ cmd_reply() {
   } >"$staging"
   mv "$staging" "$REPLIES/$id"
   fm_lock_release "$REPLY_SEQ_LOCK"
+  ledger_replied "$id" "$body"
   if [ "$json" -eq 1 ]; then
     need_python
     python3 - "$id" "$REPLIES/$id" <<'PY'
