@@ -285,7 +285,8 @@ validate_one_line() {  # <label> <value>
 
 acquire_task_control_lock() {  # <task-id>
   CAPTAIN_CONTROL_LOCK="$STATE/.control-$1.lock"
-  fm_lock_acquire_wait "$CAPTAIN_CONTROL_LOCK"
+  fm_lock_acquire_wait "$CAPTAIN_CONTROL_LOCK" \
+    || fail "cannot take the task control lock $CAPTAIN_CONTROL_LOCK: this home's state directory $STATE cannot be written"
   CAPTAIN_CONTROL_LOCK_HELD=1
 }
 

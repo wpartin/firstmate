@@ -1191,6 +1191,54 @@ test_msys_pid_identity_uses_proc() {
   pass "MSYS process identity uses compatible /proc fields"
 }
 
+
+# An unwritable lock location used to send fm_lock_try_acquire recursing
+# through .steal.steal... until the path grew too long, and
+# fm_lock_acquire_wait then retried that forever, hanging every
+# captain-hold command. It must now fail with a bounded error instead.
+test_lock_wait_on_unwritable_state_fails_instead_of_looping() {
+  local dir state lock rc start elapsed
+  if [ "$(id -u)" = 0 ]; then
+    pass "unwritable lock location (skipped: root ignores directory modes)"
+    return 0
+  fi
+  dir="$TMP_ROOT/unwritable-lock"
+  state="$dir/state"
+  mkdir -p "$state"
+  lock="$state/.control-x.lock"
+  FM_STATE_OVERRIDE="$state" bash -c '. "$1"; fm_lock_try_acquire "$2"' _ "$LIB" "$lock" \
+    || fail "setup could not create the soon-stale lock"
+  chmod a-w "$state"
+  start=$(date +%s)
+  FM_STATE_OVERRIDE="$state" FM_LOCK_UNCREATABLE_TRIES=5 perl -e 'alarm 20; exec @ARGV' \
+    bash -c '. "$1"; fm_lock_acquire_wait "$2"' _ "$LIB" "$lock" > "$dir/out" 2>&1
+  rc=$?
+  elapsed=$(( $(date +%s) - start ))
+  chmod u+w "$state"
+  [ "$rc" -eq 3 ] || fail "unwritable lock wait returned $rc, want 3 (142 means it hung): $(head -3 "$dir/out")"
+  [ "$elapsed" -lt 15 ] || fail "unwritable lock wait took ${elapsed}s"
+  assert_no_grep 'File name too long' "$dir/out"
+  pass "lock wait on an unwritable state directory fails in bounded time"
+}
+
+# A holder whose liveness probe is refused (kill -0 EPERM, as under a sandbox
+# or for another user's process) is alive, so its lock must not be stolen.
+test_lock_holder_with_denied_liveness_probe_is_not_stolen() {
+  local dir state lock owner out
+  dir="$TMP_ROOT/eperm-lock"
+  state="$dir/state"
+  mkdir -p "$state"
+  lock="$state/.control-y.lock"
+  FM_STATE_OVERRIDE="$state" bash -c '. "$1"; fm_lock_try_acquire "$2"' _ "$LIB" "$lock" \
+    || fail "setup could not create the lock"
+  owner=$(readlink "$lock")
+  case "$owner" in /*) ;; *) owner="$state/$owner" ;; esac
+  printf '1\n' > "$owner/pid"
+  out=$(FM_STATE_OVERRIDE="$state" bash -c '. "$1"; if fm_lock_try_acquire "$2"; then echo stolen; else echo "held:$FM_LOCK_HELD_PID"; fi' _ "$LIB" "$lock")
+  assert_equals "held:1" "$out" "a live holder behind a refused kill -0 probe was stolen"
+  pass "lock held by a process whose kill -0 probe is refused is not stolen"
+}
+
 test_wait_deadline_reaps_a_stopped_child
 test_singleton_start
 test_pid_identity_is_locale_invariant
@@ -1222,3 +1270,5 @@ test_arm_waits_for_peer_beacon_after_child_stands_down
 test_arm_fails_loud_when_no_fresh_watcher_confirmable
 test_cycle_exit_ledger_links_successor_and_stays_bounded
 test_stopped_watcher_is_live_but_stale_then_exit_is_classified
+test_lock_wait_on_unwritable_state_fails_instead_of_looping
+test_lock_holder_with_denied_liveness_probe_is_not_stolen
