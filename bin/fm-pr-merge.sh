@@ -356,7 +356,7 @@ merge_control_cleanup() {
 }
 trap merge_control_cleanup EXIT
 MERGE_CONTROL_LOCK="$STATE/.control-$ID.lock"
-fm_lock_acquire_wait "$MERGE_CONTROL_LOCK"
+fm_lock_acquire_wait "$MERGE_CONTROL_LOCK" || exit 1
 if ! fm_backlog_meta_spawn_gen_optional "$META" "$STATE"; then
   echo "error: task $ID changed while waiting to merge; refusing: $FM_BACKLOG_TRANSITION_ERROR" >&2
   exit 1
