@@ -9,7 +9,32 @@
 #
 # Usage:
 #   fm-bearings-board.sh build <data.json>
+#   fm-bearings-board.sh build --static [--out <path>] [<data.json>]
+#   fm-bearings-board.sh compose
 #   fm-bearings-board.sh path
+#
+# build --static renders the same template read-only (every control disabled,
+#            a banner naming the live board when state/.log-board-url or the
+#            payload's live_url names one) to --out (default the stable board
+#            path with a -static suffix). It never starts a Lavish session and
+#            never binds or arms anything. Without <data.json> it renders the
+#            payload `compose` prints. The captain's log links it
+#            (docs/captains-log.md).
+# compose    Print a deterministic fm-bearings-board.v1 payload from
+#            bin/fm-bearings-snapshot.sh --json --all-decisions --fields queue:
+#            every captain hold as a free-answer decision card, Underway,
+#            Recently Landed, and Charted Next. It is the static copy's source;
+#            a live `/bearings lavish` board keeps its agent-authored payload.
+#
+# Per-row options. Underway and Charted Next rows carry an Options button
+# whose instruction arrives as an fm-bearings-answer.v1 choice keyed
+# `action.<task-id>` with a selection of dispatch, forward, unblock, park,
+# note, or drop; the keyed-answer intake skips it (no such task) and the
+# bearings skill's board-wake section routes it. A row MAY carry `unlanded`
+# ({branch, head, commits, pr_url?}) naming its work that has not landed; the
+# board's drop confirmation lists exactly that, and the sent note begins
+# `discard=<branch>@<head>[ pr=<url>]`, which is all bin/fm-teardown.sh
+# --discard-named may then discard.
 #
 # build      Validate the payload, drop the Captain's Call cards whose subject
 #            already landed, give every surviving decision card the standard
@@ -169,8 +194,16 @@ validate_payload() {  # <data.json>
             | ([.options[].value] | index($recommend) != null))))
       and ([.options[].value] | index("reconcile") == null)
       and (if .type == "merge" then (.risk | nonempty_string) else true end);
+    def optional_unlanded:
+      (has("unlanded") | not) or (.unlanded == null)
+      or (.unlanded
+        | type == "object"
+          and (.branch | type == "string" and test("^[A-Za-z0-9._/-]{1,200}$"))
+          and (.head | type == "string" and test("^[0-9a-f]{7,64}$"))
+          and ((has("commits") | not) or ((.commits | type == "number") and .commits >= 0 and (.commits | floor == .)))
+          and optional_https_url("pr_url"));
     def underway_item:
-      type == "object" and repo_marker and name_marker and (.id | nonempty_string)
+      type == "object" and repo_marker and name_marker and (.id | nonempty_string) and optional_unlanded
       and (.state | nonempty_string) and (.doing | nonempty_string) and (.kind | nonempty_string);
     def landed_item:
       type == "object" and repo_marker and (.id | nonempty_string)
@@ -179,6 +212,7 @@ validate_payload() {  # <data.json>
       and optional_subject;
     def charted_item:
       type == "object" and repo_marker and (.id | slug(128))
+      and optional_unlanded
       and (.title | nonempty_string) and (.reason | type == "string")
       and (.dispatchable | type == "boolean")
       and ((has("kind") | not) or (.kind == "queued" or .kind == "warning"))
@@ -189,6 +223,9 @@ validate_payload() {  # <data.json>
     and (.home | nonempty_string)
     and (.generated | nonempty_string)
     and (.prs_live | type == "boolean")
+    and ((has("static") | not) or (.static | type == "boolean"))
+    and ((has("live_url") | not) or (.live_url == null)
+      or (.live_url | type == "string" and test("^(https?|file)://[^[:space:]]+$")))
     and (.captains_call | type == "array")
     and (.underway | type == "array")
     and (.landed | type == "array")
@@ -357,9 +394,9 @@ await_source_owner() {  # <source-id>
   printf '%s\n' "${owner:-none}"
 }
 
-command_build() {
-  local data=${1-} board json tmp sid extracted effective owner version pre_reopen_owner
-  [ "$#" -eq 1 ] || { usage >&2; exit 2; }
+# Validate, reconcile, and inject <data.json> into the template at <board>.
+render_board() {  # <data.json> <board>
+  local data=$1 board=$2 json tmp extracted effective
   command -v jq >/dev/null 2>&1 || fail "jq is required"
   [ -f "$data" ] || fail "board data does not exist: $data"
   jq empty "$data" 2>/dev/null || fail "board data is not valid JSON: $data"
@@ -380,7 +417,6 @@ command_build() {
   # occurrence keeps the payload valid JSON while making </script> inert.
   json=${json//</\\u003c}
 
-  board=$(board_path)
   (umask 077; mkdir -p "${board%/*}") || fail "cannot create ${board%/*}"
   tmp=$(umask 077; mktemp "${board%/*}/.board.XXXXXX") || fail "cannot stage the board"
   if ! BOARD_JSON="$json" perl -pe "s/^\\Q$PLACEHOLDER\\E\$/\$ENV{BOARD_JSON}/" "$TEMPLATE" > "$tmp"; then
@@ -404,6 +440,88 @@ command_build() {
     fail "cannot publish the board"
   fi
   printf 'board: %s\n' "$board"
+}
+
+compose_payload() {
+  local snap
+  snap=$("$SCRIPT_DIR/fm-bearings-snapshot.sh" --json --all-decisions --fields queue) \
+    || fail "cannot read the bearings snapshot"
+  printf '%s\n' "$snap" | jq --arg schema "$BOARD_SCHEMA" '
+    def str: if . == null then "" else tostring end;
+    (.queue // []) as $q
+    | ([$q[] | {key: .id, value: .}] | from_entries) as $rows
+    | {
+        schema: $schema,
+        home: (.home // "home"),
+        generated: (.generated // "unknown"),
+        prs_live: false,
+        captains_call: [ $q[]
+          | select(.state != "done" and .hold_kind == "captain" and .hold_bucket == "live")
+          | {key: .id, type: "decision", repo: .repo, title: .title,
+             about: (.hold_reason // "captain decision pending"),
+             options: [], allow_freeform: true} ],
+        underway: [ (.in_flight // [])[]
+          | {id, kind: (.kind // "ship"), state: (.state // "working"), repo: (.repo // null),
+             name: .name, doing: ((.doing // "") | if . == "" then "working" else . end)} ],
+        landed: [ (.landed // [])[]
+          | {id, what, owner, repo: ($rows[.id].repo // null)}
+            + (if (.artifact // "") | test("^https://") then {pr_url: .artifact} else {} end) ],
+        charted: [ (.gates // [])[]
+          | {id, title, repo: ($rows[.id].repo // null),
+             reason: (if .reason == "-" then (if .blocked_by == "-" then "" else "blocked by " + .blocked_by end) else .reason end),
+             dispatchable: ((.reason == "-") and (.blocked_by == "-")),
+             filed: (if (.filed // "") | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$") then .filed else null end)}
+          | select(.id | test("^[A-Za-z0-9._-]{1,128}$")) ]
+      }'
+}
+
+command_compose() {
+  [ "$#" -eq 0 ] || { usage >&2; exit 2; }
+  command -v jq >/dev/null 2>&1 || fail "jq is required"
+  compose_payload
+}
+
+command_build_static() {  # [--out <path>] [<data.json>]
+  local out='' data='' staged='' live=''
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --out) shift; out=${1-} ;;
+      *) [ -z "$data" ] || { usage >&2; exit 2; }; data=$1 ;;
+    esac
+    shift
+  done
+  [ -n "$out" ] || out="$(board_path | sed 's/\.html$//')-static.html"
+  staged=$(umask 077; mktemp "${TMPDIR:-/tmp}/fm-bearings-static.XXXXXX") || fail "cannot stage the static payload"
+  if [ -n "$data" ]; then
+    cp "$data" "$staged" || { rm -f -- "$staged"; fail "cannot read $data"; }
+  elif ! compose_payload > "$staged"; then
+    rm -f -- "$staged"
+    fail "cannot compose the board payload"
+  fi
+  if [ -f "${FM_STATE_OVERRIDE:-$FM_HOME/state}/.log-board-url" ]; then
+    IFS= read -r live < "${FM_STATE_OVERRIDE:-$FM_HOME/state}/.log-board-url" || true
+  fi
+  if ! jq --arg live "$live" '.static = true
+      | if ($live | test("^https?://")) then .live_url = $live else . end' "$staged" > "$staged.json"; then
+    rm -f -- "$staged" "$staged.json"
+    fail "board data is not valid JSON"
+  fi
+  rm -f -- "$staged"
+  render_board "$staged.json" "$out"
+  rm -f -- "$staged.json"
+}
+
+command_build() {
+  local data board sid owner version pre_reopen_owner
+  if [ "${1-}" = --static ]; then
+    shift
+    command_build_static "$@"
+    return
+  fi
+  [ "$#" -eq 1 ] || { usage >&2; exit 2; }
+  data=$1
+  board=$(board_path)
+  render_board "$data" "$board"
 
   command -v lavish-axi >/dev/null 2>&1 || fail "lavish-axi is not installed"
   sid=$("$SCRIPT_DIR/fm-procevent-lavish.sh" source-id "$board") \
@@ -453,6 +571,7 @@ command_build() {
 
 case "${1-}" in
   build) shift; command_build "$@" ;;
+  compose) shift; command_compose "$@" ;;
   path) board_path ;;
   -h|--help|help) usage ;;
   *) usage >&2; exit 2 ;;

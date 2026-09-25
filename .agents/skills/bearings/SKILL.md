@@ -112,6 +112,8 @@ Compose the payload from the same snapshot with the same ranking judgment as the
 - Every Charted Next row copies the snapshot gate's durable filed date into `filed`, and the board orders the section by it, newest filed first.
   Follow `bin/fm-bearings-board.sh`'s payload contract for the accepted format.
   Omit it or pass null for a row with no durable filed date - the main-inventory or return-catchup warning, an unavailable secondmate home, or a queued row filed before dates were recorded - and the board keeps those rows in payload order after every dated row.
+- Every Underway row, and every Charted Next row whose task already has a local copy, carries `unlanded` when its work has not landed: `branch` and `head` read from the task's own local copy (`git rev-parse --abbrev-ref HEAD` and `git rev-parse HEAD`), `commits` counted against the remotes, and `pr_url` from the task's `pr=` record when that PR is open.
+  Omit it when nothing is unlanded; the board's drop confirmation lists exactly these fields and nothing else.
 - Every Captain's Call item and every Underway, Recently Landed, and Charted Next row carries an explicit `repo` field. Fill it from the snapshot and task records wherever known; use null or an empty string only as the deliberate genuinely-no-repo marker, in which case the template may show the internal id. Ids otherwise stay in the payload only as the routing channel, and composed reasons name blockers in plain words.
 
 Run `build` once after composing the payload.
@@ -133,8 +135,24 @@ Route the non-decision keys yourself:
 
 - `merge.<task-id>` is the captain's explicit merge order; follow the merge ruling below.
 - `dispatch.charted` carries comma-separated task ids the captain picked to start now; verify each id against the current backlog - still queued, blocker and time gate actually clear - then dispatch through the normal lifecycle, and report any id that no longer qualifies instead of forcing it.
+- `action.<task-id>` is the captain's instruction for one non-decision row, chosen from that row's Options; its selection names the action and its note carries any words the captain typed.
+  Each is the captain's instruction under normal authority rules; ask no second confirmation in chat.
+  - `dispatch`: the same checks and lifecycle as `dispatch.charted` for that one id.
+  - `forward`: raise the item to the highest priority with `bin/fm-tasks-axi.sh update <id> --priority 0`, so it is dispatched next.
+  - `unblock`: clear the named blocker or hold in the way the note says; with no usable note, ask the captain in one line what should clear it.
+  - `park`: hold the item with the captain's note as the reason; for live work, stop the worker through `bin/fm-control.sh <id> exit` and keep its local copy and records.
+  - `note`: relay the note to the worker through `bin/fm-send.sh`.
+  - `drop`: the click is the captain's instruction and needs no chat confirmation.
+    With nothing unlanded, stop any worker, clean up through `bin/fm-teardown.sh <id>`, and close the item with a note that the captain dropped it from the board.
+    When the note begins `discard=<branch>@<head>`, the captain confirmed discarding exactly that work: run `bin/fm-teardown.sh <id> --discard-named <branch>@<head>` and nothing broader, and close the named open PR (`pr=<url>`) only when it is still that task's recorded PR.
+    A teardown refusal (the head moved, uncommitted changes, anything the click did not name) is final for this click: never add `--force`, and tell the captain exactly what would now be discarded.
 
 After handling, rebuild the board from a fresh snapshot so acted-on items leave Captain's Call, and echo every action taken in chat so the board and chat never diverge silently.
+
+### Static copy
+
+`bin/fm-bearings-board.sh build --static` renders a read-only copy with every control disabled, for reading when no live board is up; the captain's log keeps one beside itself and links the live board instead whenever `state/.log-board-url` names one.
+After every live `build`, write the session URL it printed to `state/.log-board-url` so each day note's board link opens the live board.
 
 ### The merge-click ruling (captain-decided)
 

@@ -3887,7 +3887,40 @@ EOF
 test_local_only_fork_remote_allows
 test_teardown_closes_the_backlog_item_itself
 test_teardown_manual_backend_leaves_the_backlog_to_the_operator
+
+# A board drop names the exact branch and head it discards; teardown honours
+# exactly that and still refuses a changed head or uncommitted changes.
+test_discard_named_removes_only_the_named_unlanded_work() {
+  local case_dir rc branch head
+  case_dir=$(make_case discard-named)
+  write_meta "$case_dir" no-mistakes ship
+  wt_commit_file "$case_dir" feature.txt hello "unpushed work"
+  branch=$(git -C "$case_dir/wt" rev-parse --abbrev-ref HEAD)
+  head=$(git -C "$case_dir/wt" rev-parse HEAD)
+  set +e
+  run_teardown "$case_dir" --discard-named "$branch@0000000000000000000000000000000000000000" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 1 "$rc" "discard-named: a different head must refuse"
+  grep -q "The work changed after the captain's drop was chosen" "$case_dir/stderr" \
+    || fail "discard-named: the changed-head refusal did not explain itself"
+  printf 'more\n' > "$case_dir/wt/scratch.txt"
+  set +e
+  run_teardown "$case_dir" --discard-named "$branch@$head" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 1 "$rc" "discard-named: uncommitted changes the click did not name must refuse"
+  rm -f "$case_dir/wt/scratch.txt"
+  set +e
+  run_teardown "$case_dir" --discard-named "$branch@$head" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 0 "$rc" "discard-named: the exactly named work must be discarded: $(cat "$case_dir/stderr")"
+  pass "--discard-named discards only the exactly named unlanded commits"
+}
+
 test_local_only_truly_unpushed_refuses
+test_discard_named_removes_only_the_named_unlanded_work
 test_local_only_merged_to_local_main_allows
 test_no_mistakes_origin_remote_allows
 test_no_mistakes_truly_unpushed_refuses
