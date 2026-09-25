@@ -14,7 +14,7 @@
 # charters still use a single `{TASK}` charter fill. Firstmate may adjust other
 # sections when the task genuinely deviates (e.g. working an existing external
 # PR instead of shipping a new one).
-# Usage: fm-brief.sh <task-id> <repo-name> --mode <no-mistakes|direct-PR|local-only> [--branch-prefix <prefix>] [--forge <none|gerrit> [--shape squash]] [--herdr-lab] [--project-dir <path>]
+# Usage: fm-brief.sh <task-id> <repo-name> --mode <no-mistakes|direct-PR|local-only> [--publish <on|off>] [--branch-prefix <prefix>] [--forge <none|gerrit> [--shape squash]] [--herdr-lab] [--project-dir <path>]
 #        fm-brief.sh <task-id> <repo-name> --scout [--herdr-lab]
 #        fm-brief.sh <task-id> --secondmate {<project>...|--no-projects}
 #   --scout writes the scout contract instead: the deliverable is a report at
@@ -40,11 +40,23 @@
 #   omitted contract cannot be silent.
 # For ship tasks, --mode is REQUIRED and shapes the definition of done. Firstmate
 # resolves it per task at intake (AGENTS.md section 7); data/projects.md holds the
-# captain's standing posture as context, and this script never reads it:
-#   no-mistakes  implement -> /no-mistakes pipeline -> PR -> configured merge authority
-#   direct-PR    implement -> push + open PR via gh-axi (no pipeline) -> configured merge authority
-#   local-only   implement on branch, stop and report "ready in branch" (no push/PR);
-#                the configured merge authority approves, firstmate merges to local main
+# captain's standing posture as context, and this script never reads it. Every
+# mode first runs the no-mistakes review pass and holds the reviewed branch
+# (bin/fm-dod-lib.sh owns that contract):
+#   no-mistakes  implement -> review pass -> held branch; when authorized, the
+#                pipeline's push/pr/ci publish -> configured merge authority
+#   direct-PR    implement -> review pass -> held branch; when authorized, push +
+#                open PR via gh-axi -> configured merge authority
+#   local-only   implement -> review pass -> "reviewed, ready in branch" (never a
+#                push or PR); the configured merge authority approves, firstmate
+#                merges to local main
+# --publish <on|off> is the task's publish authorization and defaults to off, so
+# a worker never pushes or opens a PR unless this task was told it may. Pass on
+# only when the captain pre-authorized publishing for this task; a later steer
+# can still grant it. The Definition of done records it as a machine-readable
+# "Publish authorization: <on|off>" line that bin/fm-spawn.sh checks. on is
+# refused with local-only, and --publish is refused on scout and secondmate
+# scaffolds.
 # no-mistakes-prod-only is a registry policy, not a task mode; resolve it to one of
 # the three concrete modes at intake before calling this script.
 # --branch-prefix <prefix> optionally overrides the ship branch's "fm/" prefix, so
@@ -114,8 +126,9 @@
 # appended text can never shadow it; a later scout promotion appends its ship
 # contract below it, which that position-free deference already covers. An
 # absent or blank file changes nothing; a present path that is not a readable
-# regular file, or text carrying its own "Delivery contract: mode=" line (which
-# a later scout promotion could not outrank), stops the scaffold before
+# regular file, or text carrying its own "Delivery contract: mode=" or
+# "Publish authorization:" line (which a later scout promotion could not
+# outrank), stops the scaffold before
 # anything is written. Secondmate charters never take it.
 # A ship brief also gains a PR quality limits section when the target project
 # configures the PR quality check, so the worker reads that project's own
@@ -189,6 +202,8 @@ HERDR_LAB=0
 NO_PROJECTS=0
 MODE=
 MODE_SET=0
+PUBLISH=off
+PUBLISH_SET=0
 BRANCH_PREFIX=fm/
 BRANCH_PREFIX_SET=0
 FORGE=none
@@ -206,6 +221,7 @@ for a in "$@"; do
     esac
     case "$want_value" in
       mode) MODE=$a; MODE_SET=1 ;;
+      publish) PUBLISH=$a; PUBLISH_SET=1 ;;
       branch-prefix) BRANCH_PREFIX=$a; BRANCH_PREFIX_SET=1 ;;
       forge) FORGE=$a; FORGE_SET=1 ;;
       shape) SHAPE=$a; SHAPE_SET=1 ;;
@@ -222,6 +238,8 @@ for a in "$@"; do
     --no-projects) NO_PROJECTS=1 ;;
     --mode) want_value=mode ;;
     --mode=*) MODE=${a#--mode=}; MODE_SET=1 ;;
+    --publish) want_value=publish ;;
+    --publish=*) PUBLISH=${a#--publish=}; PUBLISH_SET=1 ;;
     --branch-prefix) want_value="branch-prefix" ;;
     --branch-prefix=*) BRANCH_PREFIX=${a#--branch-prefix=}; BRANCH_PREFIX_SET=1 ;;
     --forge) want_value=forge ;;
@@ -253,8 +271,12 @@ if [ "$KIND" = ship ]; then
       exit 1 ;;
     *) echo "error: --mode must be one of no-mistakes, direct-PR, local-only (got '$MODE')" >&2; exit 1 ;;
   esac
+  fm_publish_valid_for_mode "$PUBLISH" "$MODE" "fm-brief.sh --publish" || exit 1
 elif [ "$MODE_SET" -eq 1 ]; then
   echo "error: --mode applies only to ship briefs; a scout delivers a report and a secondmate charter is not a delivery contract" >&2
+  exit 1
+elif [ "$PUBLISH_SET" -eq 1 ]; then
+  echo "error: --publish applies only to ship briefs; a scout delivers a report and a secondmate charter is not a delivery contract" >&2
   exit 1
 fi
 
@@ -320,6 +342,10 @@ if [ "$KIND" != secondmate ] && { [ -e "$BRIEF_INCLUDE_FILE" ] || [ -L "$BRIEF_I
     echo "error: $BRIEF_INCLUDE_FILE must not carry a 'Delivery contract: mode=' line; the delivery mode is a per-task --mode decision" >&2
     exit 1
   fi
+  if printf '%s\n' "$BRIEF_INCLUDE_BODY" | grep -q '^Publish authorization: '; then
+    echo "error: $BRIEF_INCLUDE_FILE must not carry a 'Publish authorization:' line; publishing is a per-task --publish decision" >&2
+    exit 1
+  fi
   [ -n "$(printf '%s' "$BRIEF_INCLUDE_BODY" | tr -d '[:space:]')" ] || BRIEF_INCLUDE_BODY=
 fi
 
@@ -344,7 +370,7 @@ BRIEF="$DATA/$ID/brief.md"
 mkdir -p "$DATA/$ID"
 
 ASK_USER_BLOCK=
-if [ "$KIND" = ship ] && [ "$MODE" = no-mistakes ]; then
+if [ "$KIND" = ship ]; then
   ASK_USER_BLOCK=$(fm_ask_user_escalation_block "$DATA" "$ID")
 fi
 
@@ -726,26 +752,17 @@ if [ -x "$CHECKER" ]; then
   fi
 fi
 
-# Ship task: shape Setup / Rule 1 by this task's explicit delivery mode, validated
+# Ship task: shape Rule 1 by this task's explicit delivery mode, validated
 # above, and render the Definition of done from its single owner, bin/fm-dod-lib.sh,
 # which bin/fm-promote.sh renders too so a promoted scout receives the same contract.
 # The block opens with the fixed "Delivery contract: mode=<mode>" line that
 # bin/fm-spawn.sh checks against its own explicit --mode and the project's
-# registered forge before launching.
-case "$MODE" in
-  direct-PR)
-    SETUP2=""
-    ;;
-  local-only)
-    SETUP2=""
-    ;;
-  *)  # no-mistakes
-    SETUP2="
+# registered forge before launching. Every mode runs the review pass, so every
+# ship worker initializes no-mistakes.
+SETUP2="
 2. Run \`no-mistakes doctor\`; if it reports the repo is not initialized here, run \`no-mistakes init\`."
-    ;;
-esac
 RULE1=$(fm_ship_rule_one "$MODE" "$ID" "$BRANCH" "$FORGE") || exit 1
-DOD=$(fm_dod_block "$MODE" "$ID" "$BRANCH" "$FORGE") || exit 1
+DOD=$(fm_dod_block "$MODE" "$ID" "$BRANCH" "$FORGE" "$PUBLISH") || exit 1
 
 cat > "$BRIEF" <<EOF
 You are a crewmate: an autonomous worker agent managed by firstmate. Work on your own; do not wait for a human.
@@ -805,7 +822,7 @@ $DOD
 EOF
 append_brief_include
 if [ "$FORGE" = none ]; then
-  echo "scaffolded: $BRIEF (ship, mode=$MODE; replace {TASK} and {FIRSTMATE_SPEC})"
+  echo "scaffolded: $BRIEF (ship, mode=$MODE publish=$PUBLISH; replace {TASK} and {FIRSTMATE_SPEC})"
 else
-  echo "scaffolded: $BRIEF (ship, mode=$MODE forge=$FORGE shape=$SHAPE; replace {TASK} and {FIRSTMATE_SPEC})"
+  echo "scaffolded: $BRIEF (ship, mode=$MODE forge=$FORGE shape=$SHAPE publish=$PUBLISH; replace {TASK} and {FIRSTMATE_SPEC})"
 fi

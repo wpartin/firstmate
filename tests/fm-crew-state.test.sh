@@ -1446,6 +1446,61 @@ test_terminal_passed_with_skips() {
   pass "terminal passed-with-skips run reads done with the skip kept visible"
 }
 
+# A review pass: push, pr, and ci skipped, so the run names no PR. Its
+# branch_sync block reports custody returned unless FM_FAKE_NEXT_ACTION says the
+# pipeline still holds the branch.
+run_review_pass_held() {  # <branch>
+  cat <<EOF
+run:
+  id: "01RUN"
+  branch: $1
+  status: completed
+  head: "${FM_FAKE_RUN_HEAD:-abc1234}"
+  head_sha: "${FM_FAKE_RUN_HEAD:-abc1234}"
+  pr: ""
+  findings: none
+outcome: passed-with-skips
+branch_sync:
+  state: ${FM_FAKE_SYNC_STATE:-custody_returned}
+  pipeline:
+    current_head: ${FM_FAKE_RUN_HEAD:-abc1234}
+EOF
+  if [ -n "${FM_FAKE_NEXT_ACTION:-}" ]; then
+    printf '  next_action:\n    code: %s\n' "$FM_FAKE_NEXT_ACTION"
+  fi
+}
+
+# Without publish authorization every mode stops at a held reviewed branch: its
+# passed review pass names no PR, and its held report reads done-and-held once
+# the pass's fixes are recovered, never stuck; an unrecovered pass reads blocked.
+test_held_reviewed_branch_reads_done_and_held() {
+  local mode d id out
+  for mode in no-mistakes direct-PR local-only; do
+    reset_fakes
+    id="held-$(printf '%s' "$mode" | tr '[:upper:]' '[:lower:]')"
+    d=$(new_case "$id")
+    make_repo_on_branch "$d/wt" "fm/$id"
+    make_fakebin "$d" >/dev/null
+    fm_write_meta "$d/state/$id.meta" "window=fm:fm-$id" "worktree=$d/wt" "project=$d/wt" "kind=ship" "mode=$mode"
+    FM_FAKE_AXI_STATUS="$(run_review_pass_held "fm/$id")"
+    out=$(run_crew_state "$d" "$id")
+    assert_contains "$out" "state: done" "$mode: a passed review pass did not read done"
+    assert_contains "$out" "reviewed branch held, no PR" "$mode: the review pass was read as a PR of unknown state"
+    assert_not_contains "$out" "PR state unknown" "$mode: the review pass reported an unknown PR"
+
+    printf 'done [at=1]: reviewed, ready in branch fm/%s\n' "$id" > "$d/state/$id.status"
+    out=$(run_crew_state "$d" "$id")
+    assert_contains "$out" "state: done" "$mode: the held reviewed branch did not read done-and-held"
+    assert_contains "$out" "reviewed, ready in branch fm/$id" "$mode: the held report was not the done detail"
+
+    FM_FAKE_SYNC_STATE=pipeline_owned FM_FAKE_AXI_STATUS="$(FM_FAKE_SYNC_STATE=pipeline_owned FM_FAKE_NEXT_ACTION=recover_custody run_review_pass_held "fm/$id")"
+    out=$(run_crew_state "$d" "$id")
+    assert_contains "$out" "state: blocked" "$mode: a held report whose fixes are still in the gate read done"
+    assert_contains "$out" "still holds this copy's branch" "$mode: the unrecovered held report did not say why"
+  done
+  pass "a held reviewed branch reads done-and-held once its review fixes are recovered, in every mode"
+}
+
 test_terminal_passed_uses_matching_retirement_receipt_without_forge() {
   reset_fakes
   local d url read_log out
@@ -5279,6 +5334,7 @@ test_top_level_fixing_done_log_stays_working
 test_terminal_passed
 test_terminal_passed_with_override
 test_terminal_passed_with_skips
+test_held_reviewed_branch_reads_done_and_held
 test_terminal_passed_uses_matching_retirement_receipt_without_forge
 test_terminal_passed_no_forge_switch_skips_read_but_keeps_receipt
 test_terminal_passed_with_open_pr_does_not_claim_merged

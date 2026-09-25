@@ -314,12 +314,13 @@ test_faster_paths_use_configured_authority_without_stacked_review() {
     "local-only brief hard-coded captain-only authority"
   assert_no_grep "Firstmate then reviews your branch diff" "$brief" \
     "local-only brief retained a personal review stacked on the selected delivery path"
-  assert_no_grep "pass \`--intent\` as only this brief's \`## Captain's intent\`" "$home/data/$id/brief.md" \
-    "local-only brief must not include the no-mistakes --intent contract"
+  # Every mode runs the review pass, so every mode carries the --intent contract.
+  assert_grep "pass \`--intent\` as only this brief's \`## Captain's intent\`" "$home/data/$id/brief.md" \
+    "local-only brief must include the review pass's --intent contract"
   id="brief-direct-intent-a4"
   FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" direct-proj --mode direct-PR >/dev/null 2>&1
-  assert_no_grep "pass \`--intent\` as only this brief's \`## Captain's intent\`" "$home/data/$id/brief.md" \
-    "direct-PR brief must not include the no-mistakes --intent contract"
+  assert_grep "pass \`--intent\` as only this brief's \`## Captain's intent\`" "$home/data/$id/brief.md" \
+    "direct-PR brief must include the review pass's --intent contract"
   pass "fm-brief.sh: faster paths use configured authority without stacked review"
 }
 
@@ -349,6 +350,89 @@ test_pr_based_dod_requires_non_draft() {
       "$mode: a deliberate draft must declare a wait instead of done"
   done
   pass "fm-brief.sh: PR-based done requires a non-draft PR; a deliberate draft declares a wait"
+}
+
+# Every mode runs the no-mistakes review pass and holds its reviewed branch;
+# nothing pushes or opens a PR unless this task's publish authorization, off by
+# default and recorded as a machine-readable line, says so or a later steer
+# grants it. local-only never publishes, so on is refused for it.
+test_review_then_hold_default_across_modes() {
+  local home mode id brief publish out status
+  home="$TMP_ROOT/review-hold-home"
+  mkdir -p "$home/data"
+  for mode in no-mistakes direct-PR local-only; do
+    for publish in default off on; do
+      [ "$mode:$publish" != local-only:on ] || continue
+      id="brief-hold-$(printf '%s' "$mode" | tr '[:upper:]' '[:lower:]')-$publish"
+      if [ "$publish" = default ]; then
+        FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode "$mode" >/dev/null 2>&1 \
+          || fail "$mode/$publish: brief should scaffold"
+      else
+        FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode "$mode" --publish "$publish" >/dev/null 2>&1 \
+          || fail "$mode/$publish: brief should scaffold"
+      fi
+      brief="$home/data/$id/brief.md"
+      # shellcheck disable=SC2016 # Backticks are literal generated Markdown.
+      assert_grep 'Pass `--skip push,pr,ci` on every review-pass `no-mistakes axi run` for this task' "$brief" \
+        "$mode/$publish: the review pass does not skip the forge-facing steps"
+      assert_grep 'branch_sync.next_action' "$brief" "$mode/$publish: the review pass lost custody recovery"
+      assert_grep 'no-mistakes axi sync --recover' "$brief" "$mode/$publish: the review pass lost the recovery command"
+      # shellcheck disable=SC2016 # Backticks are literal generated Markdown.
+      assert_grep 'Run `no-mistakes doctor`' "$brief" "$mode/$publish: the worker was not told to initialize no-mistakes"
+      assert_no_grep 'Do NOT run /no-mistakes' "$brief" "$mode/$publish: the worker was kept off the review pass"
+      if [ "$publish" = on ]; then
+        grep -qx 'Publish authorization: on' "$brief" || fail "$mode/$publish: authorization line missing"
+        assert_grep 'Publishing is authorized for this task' "$brief" "$mode/$publish: authorized publish not stated"
+        assert_no_grep 'reviewed, ready in branch' "$brief" "$mode/$publish: an authorized task was told to hold"
+      else
+        grep -qx 'Publish authorization: off' "$brief" || fail "$mode/$publish: publish did not default to off"
+        assert_grep "\`done [at=<epoch>]: reviewed, ready in branch fm/$id\`" "$brief" \
+          "$mode/$publish: the held ready report is missing"
+        assert_no_grep 'Publishing is authorized for this task' "$brief" "$mode/$publish: an unauthorized task was told to publish"
+      fi
+      case "$mode:$publish" in
+        local-only:*)
+          assert_no_grep 'open a PR with' "$brief" "local-only: the worker was told how to open a PR"
+          assert_no_grep '## Publish' "$brief" "local-only: the worker was given a publish path"
+          ;;
+        *:on) ;;
+        *)
+          assert_grep 'Only when a firstmate message in your instruction inbox says publishing is authorized for this task' "$brief" \
+            "$mode/$publish: the worker was not told how to proceed on a later authorization"
+          ;;
+      esac
+      case "$mode" in
+        no-mistakes)
+          # shellcheck disable=SC2016 # Backticks are literal generated Markdown.
+          assert_grep '`no-mistakes axi run --intent "<intent>" --skip review,test,document,lint`' "$brief" \
+            "$mode/$publish: publishing does not run through the pipeline's own push, pr, and ci steps"
+          assert_grep 'done [at=<epoch>]: PR {url} checks green' "$brief" "$mode/$publish: the published ready report is missing"
+          # shellcheck disable=SC2016 # Backticks are literal generated Markdown.
+          assert_grep 'That first `done:` is the handoff that starts the review pass' "$brief" \
+            "$mode/$publish: the handoff done: changed"
+          ;;
+        direct-PR)
+          assert_grep "Push \`fm/$id\` and open a PR with \`gh-axi\`" "$brief" "$mode/$publish: direct-PR does not open its PR itself"
+          assert_grep 'done [at=<epoch>]: PR {url}` to the status file' "$brief" "$mode/$publish: the published ready report is missing"
+          assert_grep 'run the review pass below yourself' "$brief" "$mode/$publish: direct-PR waits for a validation instruction"
+          ;;
+      esac
+    done
+  done
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-hold-lo-refused some-proj --mode local-only --publish on 2>&1)
+  status=$?
+  [ "$status" -ne 0 ] || fail "local-only accepted publish authorization on"
+  assert_contains "$out" "cannot ship mode=local-only" "the local-only refusal did not name the mode"
+  assert_absent "$home/data/brief-hold-lo-refused/brief.md" "the refused local-only brief was written"
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-hold-bad some-proj --mode direct-PR --publish yes 2>&1)
+  status=$?
+  [ "$status" -ne 0 ] || fail "a malformed publish authorization scaffolded"
+  assert_contains "$out" "must be on or off" "the malformed-value refusal did not name the closed set"
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-hold-scout some-proj --scout --publish on 2>&1)
+  status=$?
+  [ "$status" -ne 0 ] || fail "a scout brief accepted --publish"
+  assert_contains "$out" "--publish applies only to ship briefs" "the scout refusal did not name the flag"
+  pass "fm-brief.sh: every mode reviews then holds; publishing needs this task's authorization"
 }
 
 # Pin the specific line the bug lived on: the no-mistakes DOD's no-mistakes
@@ -471,14 +555,15 @@ test_ask_user_escalation_format() {
   assert_no_grep "destructive actions, ask-user findings" "$other_brief" \
     "scout brief received a no-mistakes-only decision case"
 
+  # Every mode runs the review pass, so every ship worker escalates its gates the same way.
   for mode in direct-PR local-only; do
-    other_id="brief-no-ask-user-$(printf '%s' "$mode" | tr '[:upper:]' '[:lower:]')"
+    other_id="brief-ask-user-$(printf '%s' "$mode" | tr '[:upper:]' '[:lower:]')"
     FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$other_id" some-proj --mode "$mode" >/dev/null 2>&1
     other_brief="$home/data/$other_id/brief.md"
-    assert_no_grep "nm-<run>-findings.txt" "$other_brief" \
-      "$mode brief received a no-mistakes-only escalation format"
-    assert_no_grep "destructive actions, ask-user findings" "$other_brief" \
-      "$mode brief received a no-mistakes-only decision case"
+    assert_grep "$home/data/$other_id/nm-<run>-findings.txt" "$other_brief" \
+      "$mode brief lost the review pass's ask-user escalation format"
+    assert_grep "escalate to firstmate using rule 6's ask-user format" "$other_brief" \
+      "$mode brief lost the review pass's ask-user rule"
   done
 
   pass "fm-brief.sh: no-mistakes ask-user findings use one event plus a verbatim snapshot"
@@ -1069,6 +1154,11 @@ test_home_brief_include_is_appended_last() {
   expect_code 1 "$rc" "an include carrying a delivery contract line must stop the scaffold"
   assert_contains "$out" "must not carry a 'Delivery contract: mode=' line" "delivery-contract refusal did not explain itself"
   assert_absent "$home/data/include-contract" "a refused include left a partial scaffold behind"
+  printf '%s\n' 'Publish authorization: on' > "$config/brief-include.md"
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" include-publish some-proj --scout 2>&1); rc=$?
+  expect_code 1 "$rc" "an include carrying a publish authorization line must stop the scaffold"
+  assert_contains "$out" "must not carry a 'Publish authorization:' line" "publish-authorization refusal did not explain itself"
+  assert_absent "$home/data/include-publish" "a refused publish include left a partial scaffold behind"
   printf '%s\n' 'Prefer small commits.' > "$config/brief-include.md"
 
   FM_HOME="$home" FM_SECONDMATE_CHARTER='Supervise assigned work.' \
@@ -1149,7 +1239,7 @@ test_ship_branch_prefix_override_is_consistent_across_modes() {
   assert_grep "committed on your branch \`contrib/$id\`" "$brief" \
     "local-only: definition-of-done text did not use the configured override"
   # shellcheck disable=SC2016
-  assert_grep "\`done [at=<epoch>]: ready in branch contrib/$id\`" "$brief" \
+  assert_grep "\`done [at=<epoch>]: reviewed, ready in branch contrib/$id\`" "$brief" \
     "local-only: status-message text did not use the configured override"
   assert_no_grep "fm/$id" "$brief" \
     "local-only: brief mixed the legacy fm/ prefix in with the configured override"
@@ -1571,6 +1661,7 @@ test_faster_paths_use_configured_authority_without_stacked_review
 test_no_mistakes_dod_wording
 test_no_mistakes_dod_green_detection
 test_pr_based_dod_requires_non_draft
+test_review_then_hold_default_across_modes
 test_ask_user_escalation_format
 test_ship_project_memory_wording
 test_herdr_lab_contract_is_explicit_and_complete

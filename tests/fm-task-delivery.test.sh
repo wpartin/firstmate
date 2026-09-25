@@ -395,13 +395,18 @@ STUB
   assert_grep "status protocol; the instruction inbox and its acknowledgement; the escalation rules, including ask-user; and every safety rule" "$payload" \
     "promoted worker lost the scout protocols and safety rules that still apply"
 
-  # The faster paths keep their own contracts rather than inheriting the pipeline's.
-  assert_grep "Do NOT run /no-mistakes" "$payload" \
-    "promoted direct-PR worker lost its no-pipeline contract"
+  # Every mode runs the review pass and holds by default, so a promoted
+  # direct-PR or local-only worker drives the same gates and escalations.
+  assert_grep "no-mistakes axi respond" "$payload" \
+    "promoted direct-PR worker did not receive the review pass's gate contract"
+  assert_grep "ask-user findings are never yours to answer: escalate to firstmate" "$payload" \
+    "promoted direct-PR worker did not receive the ask-user escalation rule"
+  assert_grep "reviewed, ready in branch fm/promote-dod-direct-pr" "$payload" \
+    "promoted direct-PR worker was not told to hold its reviewed branch"
+  grep -qx "Publish authorization: off" "$payload" \
+    || fail "promoted direct-PR worker's publish authorization did not default to off"
   assert_grep "Do NOT push, do NOT open a PR, do NOT merge" "$TMP_ROOT/promote-dod/payload-promote-dod-local-only" \
     "promoted local-only worker lost its no-remote contract"
-  assert_no_grep "no-mistakes axi respond" "$TMP_ROOT/promote-dod/payload-promote-dod-direct-pr" \
-    "promoted direct-PR worker received the pipeline gate contract"
   pass "fm-promote: a promoted worker receives the same mode-specific delivery contract a briefed one does"
 }
 
@@ -849,6 +854,88 @@ EOF
   pass "fm-spawn/fm-promote: leftover Task placeholders are refused until both subsections are filled"
 }
 
+# A task's publish authorization is recorded in the brief the worker reads, so a
+# spawn that disagrees with it is refused before any endpoint exists, exactly as
+# a mode mismatch is. Every mode on that contract runs the review pass, so its
+# launch brief carries the --intent contract a no-mistakes worker receives.
+test_spawn_checks_the_publish_authorization() {
+  local rec home proj fakebin out status meta
+  rec=$(make_home publish-agree)
+  IFS='|' read -r home proj fakebin <<EOF
+$rec
+EOF
+  FM_HOME="$home" "$BRIEF" publish-on-p1 proj --mode direct-PR --publish on >/dev/null 2>&1 \
+    || fail "an authorized direct-PR brief should scaffold"
+  fill_brief_subsections "$home/data/publish-on-p1/brief.md" "Open the PR once reviewed." "Keep it small."
+  out=$(run_spawn "$home" "$fakebin" publish-on-p1 "$proj" claude --mode direct-PR --yolo off --publish off)
+  status=$?
+  [ "$status" -ne 0 ] || fail "a brief/spawn publish mismatch should exit non-zero"
+  assert_contains "$out" "publish mismatch for publish-on-p1" "the publish refusal did not name the task"
+  assert_contains "$out" "the brief says publish=on but this spawn passed --publish off" \
+    "the publish refusal did not show both sides of the disagreement"
+  assert_absent "$home/state/publish-on-p1.meta" "a mismatched publish spawn wrote task metadata"
+
+  for flags in "--publish on" ""; do
+    rm -f "$home/data/publish-on-p1/launch-brief.md"
+    # shellcheck disable=SC2086 # The empty case deliberately passes no flag.
+    out=$(run_spawn "$home" "$fakebin" publish-on-p1 "$proj" claude --mode direct-PR --yolo off $flags)
+    assert_not_contains "$out" "publish mismatch" "an agreeing publish authorization ($flags) was refused"
+    assert_grep "## Captain intent authorized for --intent" "$home/data/publish-on-p1/launch-brief.md" \
+      "a direct-PR review-pass worker did not receive the --intent contract ($flags)"
+  done
+
+  FM_HOME="$home" "$BRIEF" publish-lo-p2 proj --mode local-only >/dev/null 2>&1 \
+    || fail "a local-only brief should scaffold"
+  fill_brief_subsections "$home/data/publish-lo-p2/brief.md" "Land it locally." "Keep it local."
+  sed -i.bak 's/^Publish authorization: off$/Publish authorization: on/' "$home/data/publish-lo-p2/brief.md"
+  out=$(run_spawn "$home" "$fakebin" publish-lo-p2 "$proj" claude --mode local-only --yolo off)
+  status=$?
+  [ "$status" -ne 0 ] || fail "a hand-edited local-only brief authorizing publish was launched"
+  assert_contains "$out" "cannot ship mode=local-only" "the local-only publish refusal did not name the mode"
+  meta="$home/state/publish-lo-p2.meta"
+  assert_absent "$meta" "a refused local-only publish spawn wrote task metadata"
+
+  write_brief "$home" publish-legacy-p3 direct-PR
+  out=$(run_spawn "$home" "$fakebin" publish-legacy-p3 "$proj" claude --mode direct-PR --yolo off --publish on)
+  status=$?
+  [ "$status" -ne 0 ] || fail "--publish was accepted for a brief that cannot carry it to the worker"
+  assert_contains "$out" "records no publish authorization line" "the legacy refusal did not name the missing line"
+  out=$(run_spawn "$home" "$fakebin" publish-legacy-p3 "$proj" claude --mode direct-PR --yolo off)
+  assert_contains "$out" "predates the review pass" "a legacy brief did not warn about its missing publish line"
+
+  write_brief "$home" publish-scout-p4
+  out=$(run_spawn "$home" "$fakebin" publish-scout-p4 "$proj" claude --scout --publish on)
+  status=$?
+  [ "$status" -ne 0 ] || fail "a scout spawn accepted --publish"
+  assert_contains "$out" "--publish applies only to ship spawns" "the scout refusal did not name the flag"
+  pass "fm-spawn: the brief's publish authorization and an explicit --publish must agree"
+}
+
+# Promotion renders the same publish authorization an ordinary brief does.
+test_promotion_carries_the_publish_authorization() {
+  local home id out status
+  home="$TMP_ROOT/promote-publish/home"
+  mkdir -p "$home/state"
+  id=promote-publish-q1
+  printf 'window=fm-%s\nkind=scout\nworktree=/tmp/wt\n' "$id" > "$home/state/$id.meta"
+  FM_HOME="$home" "$BRIEF" "$id" fixture-project --scout >/dev/null 2>&1 || fail "scout brief generation should succeed"
+  fill_brief_subsections "$home/data/$id/brief.md" "Ship the fix and open its PR." "Carry over only the fix."
+  out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" "$PROMOTE" "$id" --mode local-only --yolo off --publish on 2>&1)
+  status=$?
+  [ "$status" -ne 0 ] || fail "promotion accepted publish authorization on for local-only"
+  assert_contains "$out" "cannot ship mode=local-only" "the promotion refusal did not name the mode"
+  grep -qx 'kind=scout' "$home/state/$id.meta" || fail "a refused promotion changed the task record"
+  FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" "$PROMOTE" "$id" --mode direct-PR --yolo off --publish on >/dev/null 2>&1 \
+    || fail "an authorized direct-PR promotion should succeed"
+  grep -qx 'Publish authorization: on' "$home/data/$id/ship-instructions.md" \
+    || fail "the promoted worker did not receive its publish authorization"
+  grep -qx 'Publish authorization: on' "$home/data/$id/brief.md" \
+    || fail "the promoted brief a relaunch reads lost its publish authorization"
+  assert_grep 'Publishing is authorized for this task' "$home/data/$id/ship-instructions.md" \
+    "the authorized promoted worker was not told to publish"
+  pass "fm-promote: a promoted worker receives the task's publish authorization"
+}
+
 # Exercise the serialized input a worker is told to pass to no-mistakes, not
 # just the presence of words somewhere in its much larger launch brief.
 # No live model or pipeline is needed: spawn publishes this exact input before
@@ -1169,7 +1256,7 @@ test_forge_gerrit_changes_what_no_mistakes_means() {
     || fail "the brief did not record the machine-readable forge in its delivery contract"
 
   # shellcheck disable=SC2016 # Backticks are literal generated Markdown.
-  assert_grep 'Pass `--skip push,pr,ci` on every `no-mistakes axi run` for this task' "$brief" \
+  assert_grep 'Pass `--skip push,pr,ci` on every review-pass `no-mistakes axi run` for this task' "$brief" \
     "the worker was not given the skip vocabulary the forge requires"
   assert_grep 'skip nothing else' "$brief" "nothing stopped the worker skipping the review itself"
   assert_grep 'branch_sync.next_action' "$brief" \
@@ -1177,7 +1264,7 @@ test_forge_gerrit_changes_what_no_mistakes_means() {
   assert_grep 'recover_custody' "$brief" "the worker was not told which state requires recovery"
   assert_grep 'no-mistakes axi sync --recover' "$brief" \
     "the worker was not given the recovery command"
-  assert_grep 'You may not publish until you have closed that gap' "$brief" \
+  assert_grep 'You may not report the branch ready or publish it until you have closed that gap' "$brief" \
     "custody recovery was offered as advice rather than required before publishing"
   assert_grep 'how the UNFIXED code reaches review' "$brief" \
     "the brief did not say what skipping the recovery actually ships"
@@ -1218,18 +1305,14 @@ test_forge_gerrit_changes_what_no_mistakes_means() {
        emit { print }
        emit && /hard rule violation\.$/ { exit }' "$plain" > "$TMP_ROOT/forge-dod/plain-middle"
   [ -s "$TMP_ROOT/forge-dod/gerrit-middle" ] || fail "the gerrit brief carries no pipeline-driving section to compare"
-  # Only the two statements about a green PR differ: the ci step is skipped on
-  # this forge, so there is no checks-passed return to wait for.
-  grep -q "reports the green PR" "$TMP_ROOT/forge-dod/plain-middle" \
-    || fail "the default contract lost the green-PR return statement the comparison removes"
-  assert_no_grep "checks-passed" "$TMP_ROOT/forge-dod/gerrit-middle" \
-    "the gerrit worker was told to wait for a checks-passed return its skipped ci step never gives"
-  # shellcheck disable=SC2016 # Backticks are literal generated Markdown.
-  grep -v "reports the green PR" "$TMP_ROOT/forge-dod/plain-middle" \
-    | sed 's/; once checks are green it returns `checks-passed` immediately, and if it refuses/; if it refuses/' \
-    > "$TMP_ROOT/forge-dod/plain-middle-no-pr"
-  cmp -s "$TMP_ROOT/forge-dod/gerrit-middle" "$TMP_ROOT/forge-dod/plain-middle-no-pr" \
+  # The review pass skips the ci step on every forge, so its driving contract is
+  # identical text; only a pull-request forge's publishing run waits on checks.
+  cmp -s "$TMP_ROOT/forge-dod/gerrit-middle" "$TMP_ROOT/forge-dod/plain-middle" \
     || fail "the forge changed the forge-independent half of the pipeline contract"
+  assert_no_grep "checks-passed" "$brief" \
+    "the gerrit worker was told to wait for a checks-passed return its skipped ci step never gives"
+  grep -q "reports the green PR" "$plain" \
+    || fail "the default contract lost the green-PR return statement for its publishing run"
   pass "forge=gerrit: no-mistakes runs with its forge steps skipped, recovers its fixes, then publishes one change"
 }
 
@@ -1463,9 +1546,9 @@ STUB
   grep -qx "Delivery contract: mode=no-mistakes forge=gerrit shape=squash" "$payload" \
     || fail "the promoted worker did not receive the forge in its delivery contract"
   # shellcheck disable=SC2016 # Backticks are literal generated Markdown.
-  assert_grep 'Pass `--skip push,pr,ci` on every `no-mistakes axi run` for this task' "$payload" \
+  assert_grep 'Pass `--skip push,pr,ci` on every review-pass `no-mistakes axi run` for this task' "$payload" \
     "the promoted worker was not given the skip vocabulary the forge requires"
-  assert_grep 'You may not publish until you have closed that gap' "$payload" \
+  assert_grep 'You may not report the branch ready or publish it until you have closed that gap' "$payload" \
     "the promoted worker was not required to recover custody before publishing"
   assert_no_grep 'done [at=<epoch>]: PR {url} checks green' "$payload" \
     "the promoted worker was still told to report a PR with green checks"
@@ -1504,13 +1587,15 @@ test_forge_gerrit_direct_pr_publishes_one_change() {
   assert_no_grep 'open a PR with `gh-axi`' "$brief" \
     "the gerrit direct-PR worker was still told to open a pull request"
   # shellcheck disable=SC2016 # Backticks are literal generated Markdown.
-  assert_no_grep 'Pass `--skip push,pr,ci`' "$brief" \
-    "the direct-PR worker was given pipeline vocabulary for a pipeline it never runs"
+  assert_grep 'Pass `--skip push,pr,ci` on every review-pass `no-mistakes axi run`' "$brief" \
+    "the direct-PR worker did not run the review pass with its forge steps skipped"
   # shellcheck disable=SC2016 # Backticks are literal generated Markdown.
   assert_grep 'Never run `gerrit-axi submit`' "$brief" "the direct-PR worker was not kept from submitting"
-  assert_grep 'Do NOT run /no-mistakes.' "$brief" "the direct-PR worker was not kept off the pipeline"
-  assert_no_grep 'pipeline changes:' "$brief" \
-    "the direct-PR worker was asked to report pipeline fixes from a pipeline it never runs"
+  assert_no_grep 'Do NOT run /no-mistakes.' "$brief" "the direct-PR worker was kept off the review pass"
+  assert_grep 'pipeline changes:' "$brief" \
+    "the direct-PR worker was not asked to report the review pass's fixes the squash hides"
+  assert_grep 'reviewed, ready in branch fm/forge-direct-g1' "$brief" \
+    "the unauthorized gerrit direct-PR worker was not told to hold its reviewed branch"
 
   # A stack is several changes and the merge watch follows one, so the shape is
   # refused with that reason until pinned-membership watching exists.
@@ -1589,6 +1674,8 @@ EOF
 test_ship_spawn_requires_a_valid_delivery_contract
 test_scout_and_secondmate_refuse_delivery_flags
 test_spawn_refuses_a_brief_mode_mismatch
+test_spawn_checks_the_publish_authorization
+test_promotion_carries_the_publish_authorization
 test_spawn_notices_a_rigor_downgrade_against_the_registry
 test_scout_records_no_delivery_posture
 test_promote_requires_and_records_the_delivery_contract

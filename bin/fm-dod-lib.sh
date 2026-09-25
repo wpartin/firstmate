@@ -14,10 +14,28 @@
 # bin/fm-comment-length-check.sh owns the comment rule's language scope and is
 # asked for it here, so the brief never states a list that can drift from what
 # the check actually measures.
-# fm_dod_block <no-mistakes|direct-PR|local-only> <task-id> [branch] [<forge>]
+# fm_dod_block <no-mistakes|direct-PR|local-only> <task-id> [branch] [<forge>] [<publish>]
 # prints the block on stdout with no trailing blank line. The caller validates the
 # mode; an unknown mode is refused rather than silently rendered as the pipeline
 # contract.
+# Review-then-hold is the contract in every mode: the worker runs the no-mistakes
+# pipeline as a review pass with `--skip push,pr,ci`, recovers the pipeline's fix
+# commits into its branch (branch_sync.next_action / recover_custody /
+# `axi sync --recover`), iterates to a clean pass, and then either holds or
+# publishes. no-mistakes starts that pass on firstmate's instruction after its
+# handoff `done:`; direct-PR and local-only start it themselves once committed.
+# <publish> is on|off, defaults to off, and is this task's publish authorization.
+# Off, the worker reports `done: reviewed, ready in branch <branch>` and stops
+# without pushing; a later firstmate steer can grant publishing for that task,
+# and the block tells the worker how to proceed on it. On, the worker publishes
+# right after the clean pass: no-mistakes through a second run that skips the
+# already-run review steps so the pipeline's push, pr, and ci steps publish, and
+# direct-PR by pushing and opening a non-draft PR itself; a forge=gerrit task
+# publishes one squashed change instead. Either then gives the existing ready
+# report, so merge monitoring arms as before. local-only never publishes, so
+# fm_publish_valid_for_mode refuses on for it, and it keeps the guarded local
+# landing. A relaunch reads the brief again, so a steer-granted authorization
+# must be steered again after one.
 # The optional third argument is the task's full ship-branch name (a project's
 # registered prefix may replace the legacy `fm/` one); it defaults to `fm/<task-id>`
 # and is the immutable task branch rendered in every delivery contract.
@@ -28,7 +46,12 @@
 # The check tests that head, not whether some branch moved. In no-mistakes
 # mode the pre-validation `done: {summary}` is the pipeline handoff and is
 # not gated; only the later CI-ready `done: PR <url> checks green` is, or on a
-# Gerrit project the later `done: PR <change url> published for review`. The
+# Gerrit project the later `done: PR <change url> published for review`, or the
+# held `done: reviewed, ready in branch <branch>`. The held report, in any mode,
+# is accepted as done-and-held when fm_dod_nm_custody_returned shows the copy
+# holds its passed run's result and the named head is on a branch of the
+# project's local repository, which survives the disposable copy until cleanup;
+# it needs no remote. The
 # named head is the worker copy's HEAD, except that a done naming the task's
 # recorded pr= passes when the forge holds that head: a forge-reported
 # pr_head= in no-mistakes mode, or a recorded merge
@@ -49,21 +72,20 @@
 # The block opens with the fixed machine-readable "Delivery contract: mode=<mode>"
 # line that bin/fm-spawn.sh checks a ship brief against; a forge=gerrit block
 # appends " forge=gerrit shape=squash" to that line. The "Ship branch: <branch>"
-# line under it is machine-readable the same way: bin/fm-spawn.sh refuses a ship
-# whose spawn-selected branch disagrees with it.
+# and "Publish authorization: <on|off>" lines under it are machine-readable the
+# same way: bin/fm-spawn.sh refuses a ship whose spawn-selected branch or
+# explicit --publish disagrees with them.
 # forge is none|gerrit and defaults to none; bin/fm-project-mode.sh's header owns
 # what the registry binding means, and this file owns what gerrit changes for a
 # WORKER (docs/gerrit-forge-integration.md is the design). A forge composes with
 # the two modes that publish and is refused on local-only, which publishes
-# nothing. On gerrit the worker publishes one squashed change with
-# `gerrit-axi publish --squash` instead of opening a pull request: direct-PR does
-# that straight away, and no-mistakes first runs the pipeline with its three
-# forge-facing steps skipped and recovers the pipeline's own fix commits into its
-# branch, because a passed run whose fixes stayed in the gate looks exactly like
-# one whose fixes arrived and publishing it ships the unfixed code. Either mode's
-# ready report is `done: PR <change url> published for review`; under
-# no-mistakes a `note:` line listing each pipeline finding and its fix comes
-# first, because the squash's description never shows the fix commits. A stack of
+# nothing. On gerrit an authorized worker publishes one squashed change with
+# `gerrit-axi publish --squash` instead of opening a pull request, after the same
+# review pass, because a passed run whose fixes stayed in the gate looks exactly
+# like one whose fixes arrived and publishing it ships the unfixed code. Either
+# mode's ready report is `done: PR <change url> published for review`, preceded
+# by a `note:` line listing each pipeline finding and its fix, because the
+# squash's description never shows the fix commits. A stack of
 # changes is refused until it can be watched by its membership pinned when its
 # watch is armed, because the merge poll watches one change. No contract here
 # lets a worker submit, vote on, or abandon a change.
@@ -143,6 +165,24 @@ fm_forge_valid_for_mode() {  # <forge> <mode> <caller>
   esac
   if [ "$forge" != none ] && [ "$mode" = local-only ]; then
     echo "error: $caller: forge=$forge cannot ship mode=local-only - that mode publishes nothing, so a forge has no meaning there, and its landing would fast-forward local main with content the review server has never seen; ship no-mistakes or direct-PR, which publish through the forge" >&2
+    return 1
+  fi
+  return 0
+}
+
+# Closed-set gate for a task's publish authorization, shared by bin/fm-brief.sh,
+# bin/fm-promote.sh, and bin/fm-spawn.sh. local-only is refused on: it never
+# publishes, and its landing is firstmate's guarded local fast-forward.
+fm_publish_valid_for_mode() {  # <on|off> <mode> <caller>
+  local publish=$1 mode=$2 caller=$3
+  case "$publish" in
+    on|off) ;;
+    *)
+      echo "error: $caller: publish authorization must be on or off (got '$publish')" >&2
+      return 1 ;;
+  esac
+  if [ "$publish" = on ] && [ "$mode" = local-only ]; then
+    echo "error: $caller: publish authorization on cannot ship mode=local-only - that mode never pushes or opens a PR, and firstmate lands it through the guarded local fast-forward" >&2
     return 1
   fi
   return 0
@@ -285,15 +325,9 @@ EOF
 
 # The forge-independent middle of the no-mistakes contract: how a worker drives
 # the pipeline, what `--intent` may carry, and the two firstmate-specific rules.
-# Written once; only the two sentences about a green PR depend on the forge,
-# because on gerrit the ci step is skipped and there is no PR to report.
-fm_nm_driving_block() {  # <forge>
-  local pr_return_line='' pr_reattach_clause=';'
-  if [ "$1" != gerrit ]; then
-    pr_return_line="Only a drive call's return reports the green PR: \`no-mistakes axi status\` shows progress but never reports \`checks-passed\` while the ci step is still monitoring the PR for merge, so never wait on a status poll for the next gate or outcome.
-"
-    pr_reattach_clause="; once checks are green it returns \`checks-passed\` immediately, and"
-  fi
+# Written once for the review pass every mode runs; the pass skips the ci step,
+# so the green-PR return rule is stated only where a publishing run needs it.
+fm_nm_driving_block() {
   cat <<EOF
 You drive no-mistakes by responding to its gates, not by implementing fixes.
 Follow the guidance no-mistakes itself provides for the mechanics: it loads when you invoke /no-mistakes, and \`no-mistakes axi run --help\` plus the \`help\` lines in each \`axi\` response are authoritative and version-matched to the installed binary.
@@ -310,7 +344,7 @@ Do not hand-edit, commit, or fix findings yourself while a run is active - the p
 One drive call blocks until the next gate or outcome, which routinely outlives what your harness lets a single command run: Claude Code kills a command at ten minutes maximum, while one fix round is capped around thirty minutes and up to three rounds chain.
 So background the drive call instead of sitting in one blocking hold your harness will kill, and read its return when it finishes.
 Where a harness's own command limit is not established, assume it bounds commands and use that same backgrounded shape.
-${pr_return_line}Whenever a drive call returns without a gate or an outcome - its own wait elapsed, or it was killed or timed out - reattach at once by re-running \`no-mistakes axi run\` without flags, backgrounded the same way${pr_reattach_clause} if it refuses because no run is active, read the finished outcome from \`no-mistakes axi status\`.
+Whenever a drive call returns without a gate or an outcome - its own wait elapsed, or it was killed or timed out - reattach at once by re-running \`no-mistakes axi run\` without flags, backgrounded the same way; if it refuses because no run is active, read the finished outcome from \`no-mistakes axi status\`.
 A killed or timed-out call is never evidence the daemon died: the daemon accepts your response immediately and runs the round in the background, so the call was only ever waiting for a read while the run kept working.
 Reattach and keep going rather than reporting the pipeline blocked; rule 7 owns the checks that decide when a pipeline block is real.
 
@@ -326,7 +360,8 @@ EOF
 # How a worker on a forge=gerrit project publishes, shared by both publishing
 # modes so the one push, the Change-Id rule, and the ready report are written
 # once. gerrit-axi owns the squash mechanics; this names the one call and what
-# to read back from it.
+# to read back from it. The squash hides the review pass's fix commits, so the
+# pipeline-changes note that precedes the ready report is written here too.
 fm_gerrit_publish_block() {
   cat <<EOF
 Publish from this copy with \`gerrit-axi\`, never with \`git push\`:
@@ -338,6 +373,8 @@ Publish from this copy with \`gerrit-axi\`, never with \`git push\`:
    Never pass \`--stack\`: a stack of changes is not published from this fleet until it can be watched by its membership pinned when its watch is armed, and the watch follows exactly one change.
 3. Read the record it prints: \`ok\` must be \`true\`, and the one row of its \`changes\` table is your change. Its \`url\` is the change URL; when \`url\` is null, write \`https://<host>/c/<project>/+/<change>\` from your \`origin\` remote's host and that row's \`project\` and \`change\`.
    A failure prints a typed error record instead; fix what it names and publish again, which updates the same change rather than creating another.
+The squashed change carries only the oldest commit's message, so the pipeline's own fix commits never reach the reviewer's description; your report is how they reach the captain.
+After publishing and immediately before your ready report, append one line \`note [at=<epoch>]: pipeline changes: {finding} - {fix it made}; {finding} - {fix it made}\` to the status file, one short clause per finding the review pass fixed, taken from the run's \`fixes\` table and the gate findings its drive calls returned (\`no-mistakes axi logs --step <step> --full\` has the detail); write \`note [at=<epoch>]: pipeline changes: none\` when it fixed nothing.
 Then append \`done [at=<epoch>]: PR {change url} published for review\` to the status file and stop. You are finished.
 That \`done:\` is accepted only when the change's current patch set on the server carries this copy's HEAD tree, so commit nothing after publishing; if you must change the work, commit it and publish again before reporting done.
 A \`done:\` whose URL is not the canonical \`https://<host>/c/<project>/+/<number>\` change URL is refused.
@@ -345,111 +382,151 @@ There is no pull request, no \`gh-axi\` call, and no forge CI result to report: 
 EOF
 }
 
-fm_dod_block() {  # <mode> <task-id> [branch] [<forge>]
-  local mode=$1 id=$2 forge=${4:-none}
-  local branch=${3:-fm/$id}
-  fm_forge_valid_for_mode "$forge" "$mode" fm_dod_block || return 1
-  case "$mode:$forge" in
-    direct-PR:gerrit)
-      cat <<EOF
-# Definition of done
-Delivery contract: mode=direct-PR forge=gerrit shape=squash
-Ship branch: $branch
-This task ships **direct-PR** to a Gerrit review server: you publish the change yourself, without the no-mistakes pipeline.
-Gerrit has no pull requests, so there is nothing to open; publishing creates the change.
-The task is complete only when committed on your branch.
-When it is implemented and committed, publish it.
-EOF
-      fm_gerrit_publish_block
-      cat <<EOF
-Do NOT run /no-mistakes.
-EOF
-      ;;
-    no-mistakes:gerrit)
-      cat <<EOF
-# Definition of done
-Delivery contract: mode=no-mistakes forge=gerrit shape=squash
-Ship branch: $branch
-This project's review server is Gerrit: it has no pull requests and no forge CI the pipeline can watch, so **no-mistakes runs here as a review pass that ends at a ready branch**, and you then publish that branch as one change.
-Pass \`--skip push,pr,ci\` on every \`no-mistakes axi run\` for this task, and skip nothing else: \`review\`, \`test\`, \`document\`, and \`lint\` are the whole point of the run.
+# The review pass every mode runs before its branch is called ready: the
+# pipeline with its three forge-facing steps skipped, then recovery of its fix
+# commits, because with push skipped nothing carries them back to the copy.
+fm_review_pass_block() {  # <branch>
+  local branch=$1
+  cat <<EOF
+## Review pass
+Every change runs the no-mistakes pipeline as a review pass before it is called ready, whatever this task's delivery mode, and that pass pushes and publishes nothing.
+Pass \`--skip push,pr,ci\` on every review-pass \`no-mistakes axi run\` for this task, and skip nothing else: \`review\`, \`test\`, \`document\`, and \`lint\` are the whole point of the run.
 Those three are the only steps that reach a forge, and skipping them is a supported outcome, not a degraded one.
-The task is complete only when committed on your branch.
-When you believe it is complete, append \`done [at=<epoch>]: {summary}\` to the status file and stop.
-Firstmate will then instruct you to run /no-mistakes to validate.
-That first \`done:\` is the handoff that starts the pipeline; it is not a request to publish.
 
 EOF
-      fm_nm_driving_block "$forge"
-      cat <<EOF
+  fm_nm_driving_block
+  cat <<EOF
 
 Because \`push\` is skipped, the pipeline's fixes DO NOT arrive in your checkout: each fix round commits onto a branch inside no-mistakes' own local gate repository, and with no push nothing carries those commits back to you.
 Your tree never goes dirty and nothing interrupts you, so a passed run whose fixes are still in the gate looks exactly like a passed run whose fixes you already have.
-You may not publish until you have closed that gap:
+You may not report the branch ready or publish it until you have closed that gap:
 1. After the run reaches its outcome, read \`branch_sync.next_action\` from \`no-mistakes axi status\`.
-2. When its code is \`recover_custody\`, run the exact command that status prints - \`no-mistakes axi sync --recover\` - and confirm \`branch_sync.state\` comes back \`custody_returned\` on a clean tree. The printed command is authoritative if it differs. The \`run_pipeline\` next action status reports after recovery is not an instruction to run again: the recovered head is the one the passed run validated, so publish it.
+2. When its code is \`recover_custody\`, run the exact command that status prints - \`no-mistakes axi sync --recover\` - and confirm \`branch_sync.state\` comes back \`custody_returned\` on a clean tree. The printed command is authoritative if it differs. The \`run_pipeline\` next action status reports after recovery is not an instruction to run again: the recovered head is the one the passed run validated.
 3. Confirm with \`git log\` that \`$branch\` now carries every fix commit the run made, whether or not step 2 was needed.
-An unrecovered fix round is an unfinished task, never housekeeping: publishing without it is how the UNFIXED code reaches review.
-Your ready report is refused while the run still holds your branch, while its outcome is missing or not passing, or while your HEAD's tree differs from the run's result.
-
-When the run's outcome is passed, passed-with-skips, or passed-with-override and step 3 holds, publish.
-The squashed change carries only the oldest commit's message, so the pipeline's own fix commits never reach the reviewer's description; your report is how they reach the captain.
-After publishing and immediately before your ready report, append one line \`note [at=<epoch>]: pipeline changes: {finding} - {fix it made}; {finding} - {fix it made}\` to the status file, one short clause per finding the run fixed, taken from the run's \`fixes\` table and the gate findings its drive calls returned (\`no-mistakes axi logs --step <step> --full\` has the detail); write \`note [at=<epoch>]: pipeline changes: none\` when it fixed nothing.
+An unrecovered fix round is an unfinished task, never housekeeping: holding or publishing without it is how the UNFIXED code reaches review.
+When the run ends failed, fix what it names on \`$branch\`, commit, and start the review pass again; iterate until its outcome is passed, passed-with-skips, or passed-with-override and step 3 holds.
+That is the clean pass. Commit nothing after it; if you must change the work, run the review pass again.
+The held ready report below is refused while the run still holds your branch, while its outcome is missing or not passing, or while your HEAD's tree differs from the run's result.
 EOF
+}
+
+# The held stop and the authorization rule. <publish> is on only when this task
+# was scaffolded with publishing pre-authorized; off holds the reviewed branch
+# until a firstmate steer grants publishing for this task.
+fm_publish_gate_block() {  # <branch> <on|off> <publish-noun>
+  local branch=$1 publish=$2 noun=$3
+  if [ "$publish" = on ]; then
+    cat <<EOF
+
+## Publish
+Publishing is authorized for this task: after the clean review pass, publish from \`$branch\` as follows without waiting for a further instruction.
+EOF
+    return 0
+  fi
+  cat <<EOF
+
+## Hold
+Publishing is NOT authorized for this task: do NOT push, do NOT $noun.
+After the clean review pass, append \`done [at=<epoch>]: reviewed, ready in branch $branch\` to the status file and stop.
+That held \`done:\` is accepted only when the run passed with its fixes recovered and this copy's HEAD is on \`$branch\` in the project's local repository; the branch stays there until the task is cleaned up.
+
+## Publish
+Only when a firstmate message in your instruction inbox says publishing is authorized for this task, publish from the held \`$branch\` as follows; acknowledge that message, and run the review pass again first only if you changed the branch since its clean pass.
+EOF
+}
+
+fm_dod_block() {  # <mode> <task-id> [branch] [<forge>] [<publish>]
+  local mode=$1 id=$2 forge=${4:-none} publish=${5:-off}
+  local branch=${3:-fm/$id} contract="mode=$1"
+  fm_forge_valid_for_mode "$forge" "$mode" fm_dod_block || return 1
+  fm_publish_valid_for_mode "$publish" "$mode" fm_dod_block || return 1
+  [ "$forge" = none ] || contract="$contract forge=$forge shape=squash"
+  case "$mode" in
+    no-mistakes|direct-PR|local-only) ;;
+    *)
+      echo "error: fm_dod_block: unknown delivery mode '$mode'" >&2
+      return 1 ;;
+  esac
+  cat <<EOF
+# Definition of done
+Delivery contract: $contract
+Ship branch: $branch
+Publish authorization: $publish
+EOF
+  case "$mode:$forge" in
+    no-mistakes:gerrit)
+      printf '%s\n' "This project's review server is Gerrit: it has no pull requests and no forge CI the pipeline can watch, so once published the change is reviewed there."
+      ;;
+    no-mistakes:*)
+      printf '%s\n' "This task ships **no-mistakes**: the review pass below validates the branch, and publishing, when authorized, runs through the pipeline's own push, pr, and ci steps."
+      ;;
+    direct-PR:gerrit)
+      printf '%s\n' "This task ships **direct-PR** to a Gerrit review server: after the review pass, publishing, when authorized, is yours. Gerrit has no pull requests, so there is nothing to open; publishing creates the change."
+      ;;
+    direct-PR:*)
+      printf '%s\n' "This task ships **direct-PR**: after the review pass, publishing, when authorized, is yours - you push and open the PR without a second pipeline run."
+      ;;
+    local-only:*)
+      printf '%s\n' "This task ships **local-only**: no remote and no PR, ever. Do NOT push, do NOT open a PR, do NOT merge."
+      ;;
+  esac
+  printf '%s\n' "The task is complete only when committed on your branch \`$branch\`."
+  case "$mode" in
+    no-mistakes)
+      cat <<EOF
+When you believe it is complete, append \`done [at=<epoch>]: {summary}\` to the status file and stop.
+Firstmate will then instruct you to run /no-mistakes to validate; run it as the review pass below.
+That first \`done:\` is the handoff that starts the review pass; it is not a request to push or publish.
+EOF
+      ;;
+    *)
+      printf '%s\n' "When it is implemented and committed, run the review pass below yourself; no firstmate instruction is needed to start it."
+      ;;
+  esac
+  printf '\n'
+  fm_review_pass_block "$branch"
+  case "$mode:$forge" in
+    local-only:*)
+      cat <<EOF
+
+## Hold
+Keep your branch a clean fast-forward onto the current default branch: rebase onto an advanced \`main\` before a review pass, never after its clean pass.
+After the clean review pass, append \`done [at=<epoch>]: reviewed, ready in branch $branch\` to the status file and stop.
+That held \`done:\` is accepted only when the run passed with its fixes recovered and this copy's HEAD is on \`$branch\` in the project's local repository.
+The configured merge authority approves the ready branch, then firstmate merges it into local \`main\` through the guarded fast-forward path.
+EOF
+      ;;
+    *:gerrit)
+      fm_publish_gate_block "$branch" "$publish" "publish a change"
       fm_gerrit_publish_block
       ;;
     direct-PR:*)
+      fm_publish_gate_block "$branch" "$publish" "open a PR"
       cat <<EOF
-# Definition of done
-Delivery contract: mode=direct-PR
-Ship branch: $branch
-This task ships **direct-PR**: you raise the PR yourself, without the no-mistakes pipeline.
-The task is complete only when committed on your branch.
-When it is implemented and committed, push your branch and open a PR with \`gh-axi\` that is ready for review, not a draft.
+Push \`$branch\` and open a PR with \`gh-axi\` that is ready for review, not a draft.
 Before you report done, read the PR back from the forge and confirm it is not a draft (\`gh pr view <url> --json isDraft\` must print false); if it is a draft, mark it ready with \`gh-axi pr ready\`.
 A draft cannot be merged, so a done report on one leaves the merge unasked.
 Then append \`done [at=<epoch>]: PR {url}\` to the status file and stop.
 That \`done:\` is accepted only when this copy's HEAD - your latest commit - is pushed to your PR branch; the check tests that commit, not merely that a branch moved.
 If you deliberately keep the PR a draft, append \`paused [at=<epoch>]: {why the draft is held}\` instead of done.
-Do NOT run /no-mistakes. The configured merge authority decides whether to merge the PR; firstmate relays the outcome.
-EOF
-      ;;
-    local-only:*)
-      cat <<EOF
-# Definition of done
-Delivery contract: mode=local-only
-Ship branch: $branch
-This task ships **local-only**: no remote, no PR, no pipeline.
-The task is complete only when committed on your branch \`$branch\`. Do NOT push, do NOT open a PR, do NOT merge.
-A \`done:\` is accepted when the named head is on this project's shared local branch, not only on a detached copy; the check tests that head, not merely that a branch moved.
-Keep your branch a clean fast-forward onto the current default branch - if \`main\` has advanced, rebase onto it so the eventual merge stays a fast-forward.
-When it is implemented and committed, append \`done [at=<epoch>]: ready in branch $branch\` to the status file and stop.
-The configured merge authority approves the ready branch, then firstmate merges it into local \`main\` through the guarded fast-forward path.
+The configured merge authority decides whether to merge the PR; firstmate relays the outcome.
 EOF
       ;;
     no-mistakes:*)
+      fm_publish_gate_block "$branch" "$publish" "open a PR"
       cat <<EOF
-# Definition of done
-Delivery contract: mode=no-mistakes
-Ship branch: $branch
-The task is complete only when committed on your branch.
-When you believe it is complete, append \`done [at=<epoch>]: {summary}\` to the status file and stop.
-Firstmate will then instruct you to run /no-mistakes to validate and ship a PR.
-That first \`done:\` is the handoff that starts the pipeline, which owns the push; it is not a request to push from this copy.
-
-EOF
-      fm_nm_driving_block "$forge"
-      cat <<EOF
-
-After /no-mistakes reports CI green (the CI-ready return point - do not wait for it to keep monitoring in the background until merge), read the PR back from the forge and confirm it is not a draft (\`gh pr view <url> --json isDraft\` must print false); if it is a draft, mark it ready with \`gh-axi pr ready\`.
+Start a publishing run on \`$branch\` with the same \`--intent\`, skipping only the steps the clean review pass already ran: \`no-mistakes axi run --intent "<intent>" --skip review,test,document,lint\`.
+Its push, pr, and ci steps then publish the reviewed head; the pipeline owns that push, so never push from this copy.
+Drive it exactly as the review pass above, including the ask-user and \`--yes\` rules, with one addition for its ci step:
+Only a drive call's return reports the green PR: \`no-mistakes axi status\` shows progress but never reports \`checks-passed\` while the ci step is still monitoring the PR for merge, so never wait on a status poll for the next gate or outcome.
+When a drive call returns without a gate or an outcome, reattach as above; once checks are green it returns \`checks-passed\` immediately.
+After it reports CI green (the CI-ready return point - do not wait for it to keep monitoring in the background until merge), read the PR back from the forge and confirm it is not a draft (\`gh pr view <url> --json isDraft\` must print false); if it is a draft, mark it ready with \`gh-axi pr ready\`.
 A draft cannot be merged, so a done report on one leaves the merge unasked.
 Then append \`done [at=<epoch>]: PR {url} checks green\` and stop. You are finished.
 That CI-ready \`done:\` is accepted only when this copy's HEAD - your latest commit - is one the /no-mistakes run pushed, so commit nothing after the run; the check tests that commit, not merely that a branch moved.
 If you deliberately keep the PR a draft, append \`paused [at=<epoch>]: {why the draft is held}\` instead of done.
 EOF
       ;;
-    *)
-      echo "error: fm_dod_block: unknown delivery mode '$mode'" >&2
-      return 1 ;;
   esac
   fm_ship_working_rules
 }
@@ -522,6 +599,17 @@ fm_dod_note_reports_published_change() {  # <note>
   return 1
 }
 
+# 0 when a done: note reports a reviewed branch held after its clean review
+# pass (`reviewed, ready in branch <branch>`), the ready report every mode gives
+# when publishing is not authorized. A legacy local-only `ready in branch` note
+# without "reviewed" predates the review pass and keeps its reachability gate.
+fm_dod_note_reports_held_branch() {  # <note>
+  case "$1" in
+    *"reviewed, ready in branch"*) return 0 ;;
+  esac
+  return 1
+}
+
 # 0 when this ship done: is one the named-head gate must accept or refuse.
 # no-mistakes pre-validation done: is the pipeline handoff and is not gated.
 # Empty mode is treated as no-mistakes, the unregistered-project default.
@@ -533,7 +621,8 @@ fm_dod_should_gate_ship_done() {  # <kind> <mode> <line>
   case "$2" in
     direct-PR|local-only) return 0 ;;
     no-mistakes|'')
-      fm_dod_note_reports_ci_ready "$note" || fm_dod_note_reports_published_change "$note" ;;
+      fm_dod_note_reports_ci_ready "$note" || fm_dod_note_reports_published_change "$note" \
+        || fm_dod_note_reports_held_branch "$note" ;;
     *) return 1 ;;
   esac
 }
@@ -691,6 +780,14 @@ fm_dod_accept_ship_done() {  # <kind> <mode> <worktree> <project> <line> [<state
     printf '%s\n' "named head could not be resolved"
     return 1
   }
+  if fm_dod_note_reports_held_branch "$(status_line_note "$line")"; then
+    fm_dod_nm_custody_returned "$wt" || return 1
+    if fm_dod_named_head_reachable_outside_worktree "$wt" "$project" local-only "$sha"; then
+      return 0
+    fi
+    printf '%s\n' "held named head $sha is not on a branch of the project's local repository"
+    return 1
+  fi
   gerrit=0
   [ -n "$url" ] && fm_pr_url_parse "$url" && [ "$FM_PR_PROVIDER" = gerrit ] && gerrit=1
   if [ "$gerrit" = 0 ] && fm_dod_note_reports_published_change "$(status_line_note "$line")"; then

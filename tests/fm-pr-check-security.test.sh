@@ -692,6 +692,33 @@ test_direct_pr_unpushed_commit_refuses_registration() {
   pass "fm-pr-check refuses a direct-PR registration while a later commit is only in the copy"
 }
 
+# A task held on its reviewed branch has published nothing, so a PR registration
+# for its local head is refused until an authorized publish pushes that head;
+# the same reviewed head then arms like any direct-PR ready report.
+test_held_branch_arms_only_after_an_authorized_publish() {
+  local dir reviewed url
+  dir=$(make_case held-then-published)
+  fm_write_meta "$dir/home/state/task-a.meta" \
+    "window=firstmate:fm-task-a" "endpoint_task_id=task-a" "worktree=$dir/wt" \
+    "project=$dir/project" "kind=ship" "mode=direct-PR"
+  printf 'done [at=1]: reviewed, ready in branch fm/task-a\n' > "$dir/home/state/task-a.status"
+  git -C "$dir/wt" commit -q --allow-empty -m 'reviewed work'
+  git -C "$dir/wt" commit -q --allow-empty -m 'no-mistakes(review): recovered fix'
+  reviewed=$(git -C "$dir/wt" rev-parse HEAD)
+  url=https://github.com/o/r/pull/9
+  FM_TEST_GH_HEAD=$reviewed run_check_entry "$dir" task-a "$url" \
+    > "$dir/stdout" 2> "$dir/stderr" && fail "a held branch that was never pushed was registered as a PR"
+  grep -Fq "named head $reviewed is unreachable outside the worker copy" "$dir/stderr" \
+    || fail "the held-branch refusal did not name the unpublished head: $(cat "$dir/stderr")"
+  [ ! -e "$dir/home/state/task-a.check.sh" ] || fail "a held branch armed a merge poll"
+  git -C "$dir/wt" update-ref refs/remotes/origin/fm/task-a "$reviewed"
+  FM_TEST_GH_HEAD=$reviewed run_check_entry "$dir" task-a "$url" >/dev/null 2> "$dir/stderr" \
+    || fail "the authorized publish of the reviewed head was refused: $(cat "$dir/stderr")"
+  grep -qxF "pr=$url" "$dir/home/state/task-a.meta" || fail "the published reviewed head was not recorded"
+  [ -e "$dir/home/state/task-a.check.sh" ] || fail "the published reviewed head did not arm a merge poll"
+  pass "fm-pr-check arms a held reviewed branch only after an authorized publish pushes it"
+}
+
 test_valid_recording_and_merge_derivation() {
   local dir expected sidecar count rc
   dir=$(make_case valid-recording)
@@ -1912,13 +1939,14 @@ test_gerrit_nm_ready_gate_requires_recovered_custody() {
     || fail "arming refused a recovered copy whose squash carries the pipeline's result"
   grep -qxF "pr=$url" "$state/task-recovered.meta" || fail "the recovered publish was not recorded"
 
-  # A direct-PR task never runs the pipeline, so no run is asked about.
+  # A direct-PR ready report is gated on the published content, not on the
+  # review pass's custody, so no run is asked about.
   : > "$dir/nm.log"
   write_task_meta "$dir" task-direct
   sed -i.bak 's/^mode=no-mistakes$/mode=direct-PR/' "$state/task-direct.meta" && rm -f "$state/task-direct.meta.bak"
   FM_TEST_GERRIT_REVISION=$squash FM_TEST_NM_FAIL=1 FM_TEST_NM_LOG="$dir/nm.log" \
     run_check_entry "$dir" task-direct "$url" >/dev/null \
-    || fail "a direct-PR Gerrit publish was refused over a pipeline it never runs"
+    || fail "a direct-PR Gerrit publish was refused over pipeline custody its gate does not read"
   [ ! -s "$dir/nm.log" ] || fail "a direct-PR Gerrit publish consulted no-mistakes"
   pass "a no-mistakes Gerrit ready report requires the pipeline's fixes recovered into the published copy"
 }
@@ -3408,6 +3436,7 @@ test_invalid_entrypoints_have_zero_side_effects
 test_draft_pull_request_is_not_armed
 test_unpushed_named_head_refuses_registration
 test_direct_pr_unpushed_commit_refuses_registration
+test_held_branch_arms_only_after_an_authorized_publish
 test_valid_recording_and_merge_derivation
 test_rejected_metacharacter_bytes_are_inert
 test_static_poll_contract

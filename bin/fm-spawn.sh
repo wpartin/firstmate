@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Spawn a direct report: a crewmate in a treehouse or Orca worktree, or a
 # secondmate in its isolated firstmate home.
-# Usage: fm-spawn.sh <task-id> <project-dir> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--branch-prefix <prefix>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>]
+# Usage: fm-spawn.sh <task-id> <project-dir> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--publish <on|off>] [--branch-prefix <prefix>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>]
 #        fm-spawn.sh <task-id> <project-dir> --scout [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>]
 #        fm-spawn.sh <task-id> [<firstmate-home>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] --secondmate
 #   --mode and --yolo are this task's delivery contract, REQUIRED for every ship
@@ -12,6 +12,12 @@
 #   "Delivery contract: mode=<mode>" line and REFUSES a mismatch, so the worker's
 #   instructions and the recorded task delivery cannot drift apart; a brief
 #   scaffolded before that line existed warns once and launches on the flag.
+#   The brief's "Publish authorization: <on|off>" line (bin/fm-dod-lib.sh owns
+#   its meaning) is checked the same way: a malformed value or on with local-only
+#   is refused, and the optional --publish must agree with it; --publish against
+#   a brief that records no such line is refused, while a brief scaffolded before
+#   it existed warns once. --publish is refused on --scout, --secondmate, and
+#   --relaunch, which reuses the brief's recorded line.
 #   The project's forge IS read from data/projects.md, because it is the
 #   captain's confirmed project fact rather than a per-task choice: a spawn
 #   refuses a brief whose `forge=` disagrees with the registered binding in
@@ -22,9 +28,10 @@
 #   ship or scout spawn also refuses leftover `{TASK}` / `{FIRSTMATE_SPEC}`
 #   placeholders, an empty Task, an incomplete pair of Task subsections, or a
 #   `## Captain's intent` line opening with a Captain label or address.
-#   Every ship or scout spawn renders `launch-brief.md`; for a no-mistakes ship
-#   it also carries the current `--intent` contract and the extracted captain
-#   intent. A legacy mixed Task is accepted there only under bin/fm-dod-lib.sh's
+#   Every ship or scout spawn renders `launch-brief.md`; for a ship that runs
+#   the pipeline - no-mistakes, or any mode whose brief records a publish
+#   authorization line - it also carries the current `--intent` contract and the
+#   extracted captain intent. A legacy mixed Task is accepted there only under bin/fm-dod-lib.sh's
 #   provenance-marking rules; unmarked legacy Tasks stop for migration rather
 #   than becoming intent. That library owns the parsing and intent rules. When
 #   the explicit mode carries less rigor than the project's standing posture, a
@@ -618,6 +625,8 @@ EFFORT_SET=0
 BACKEND_SET=0
 MODE_SET=0
 YOLO_SET=0
+PUBLISH=
+PUBLISH_SET=0
 BRANCH_PREFIX_SET=0
 TRACEPARENT_SET=0
 RELAUNCH=0
@@ -655,6 +664,10 @@ for a in "$@"; do
     yolo)
       YOLO=$a
       YOLO_SET=1
+      ;;
+    publish)
+      PUBLISH=$a
+      PUBLISH_SET=1
       ;;
     branch-prefix)
       BRANCH_PREFIX=$a
@@ -711,6 +724,11 @@ for a in "$@"; do
   --yolo=*)
     YOLO=${a#--yolo=}
     YOLO_SET=1
+    ;;
+  --publish) want_value=publish ;;
+  --publish=*)
+    PUBLISH=${a#--publish=}
+    PUBLISH_SET=1
     ;;
   --branch-prefix) want_value="branch-prefix" ;;
   --branch-prefix=*)
@@ -799,6 +817,10 @@ if [ "$RELAUNCH" -eq 1 ]; then
     echo "error: --relaunch reuses the task's recorded yolo posture; --yolo cannot override it" >&2
     exit 1
   }
+  [ "$PUBLISH_SET" -eq 0 ] || {
+    echo "error: --relaunch reuses the brief's recorded publish authorization; --publish cannot override it" >&2
+    exit 1
+  }
   [ "$BRANCH_PREFIX_SET" -eq 0 ] || {
     echo "error: --relaunch reuses the task's recorded ship branch; --branch-prefix cannot override it" >&2
     exit 1
@@ -835,6 +857,7 @@ else
       exit 1
       ;;
     esac
+    [ "$PUBLISH_SET" -eq 0 ] || fm_publish_valid_for_mode "$PUBLISH" "$MODE" "fm-spawn.sh --publish" || exit 1
   else
     [ "$MODE_SET" -eq 0 ] || {
       echo "error: --mode applies only to ship spawns; a scout delivers a report and a secondmate records its own fixed posture" >&2
@@ -842,6 +865,10 @@ else
     }
     [ "$YOLO_SET" -eq 0 ] || {
       echo "error: --yolo applies only to ship spawns; a scout delivers a report and a secondmate records its own fixed posture" >&2
+      exit 1
+    }
+    [ "$PUBLISH_SET" -eq 0 ] || {
+      echo "error: --publish applies only to ship spawns; a scout delivers a report and a secondmate records its own fixed posture" >&2
       exit 1
     }
     [ "$BRANCH_PREFIX_SET" -eq 0 ] || {
@@ -1413,6 +1440,7 @@ if [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart" ] && case "$idpart" in *
   # spanning several modes is two invocations rather than a silent mixed dispatch.
   [ "$MODE_SET" -eq 0 ] || shared_args+=(--mode "$MODE")
   [ "$YOLO_SET" -eq 0 ] || shared_args+=(--yolo "$YOLO")
+  [ "$PUBLISH_SET" -eq 0 ] || shared_args+=(--publish "$PUBLISH")
   [ "$BRANCH_PREFIX_SET" -eq 0 ] || shared_args+=(--branch-prefix "$BRANCH_PREFIX")
   for pair in "${POS[@]}"; do
     case "$pair" in
@@ -2840,7 +2868,13 @@ if [ "$KIND" = ship ] || [ "$KIND" = scout ]; then
     echo "error: $BRIEF ## Captain's intent has an operator-address line: $ADDRESS_LINE; write the captain's actual words without a Captain label or address before spawn, since the heading already records provenance" >&2
     exit 1
   fi
-  if [ "$KIND" = ship ] && [ "$MODE" = no-mistakes ]; then
+  # Every mode on the review-then-hold contract runs the pipeline, so its
+  # worker needs the same --intent contract a no-mistakes worker receives.
+  RUNS_PIPELINE=0
+  if [ "$KIND" = ship ] && { [ "$MODE" = no-mistakes ] || grep -q '^Publish authorization: ' "$BRIEF"; }; then
+    RUNS_PIPELINE=1
+  fi
+  if [ "$RUNS_PIPELINE" -eq 1 ]; then
     if fm_brief_task_heading_present "$BRIEF" "## Captain's intent"; then
       CAPTAIN_INTENT=$(fm_brief_task_heading_body "$BRIEF" "## Captain's intent")
     else
@@ -2861,7 +2895,7 @@ if [ "$KIND" = ship ] || [ "$KIND" = scout ]; then
     fm_brief_worker_role "$STATE" "$ID" &&
       printf '\n' &&
       cat "$SOURCE_BRIEF" &&
-      if [ "$KIND" = ship ] && [ "$MODE" = no-mistakes ]; then
+      if [ "$RUNS_PIPELINE" -eq 1 ]; then
         fm_brief_intent_overlay "$CAPTAIN_INTENT"
       fi
   } >"$BRIEF_TMP" || {
@@ -2908,6 +2942,8 @@ if [ "$KIND" = ship ]; then
   BRIEF_FORGE=$(sed -n 's/^Delivery contract: mode=[^ ]*.*[[:space:]]forge=\([^ ]*\).*$/\1/p' "$BRIEF" | head -n 1)
   [ -n "$BRIEF_FORGE" ] || BRIEF_FORGE=none
   BRIEF_BRANCH=$(sed -n 's/^Ship branch: //p' "$BRIEF" | head -n 1)
+  BRIEF_PUBLISH_LINE=$(grep -c '^Publish authorization: ' "$BRIEF" || true)
+  BRIEF_PUBLISH=$(sed -n 's/^Publish authorization: //p' "$BRIEF" | head -n 1)
   if [ -n "$BRIEF_BRANCH" ]; then
     [ "$BRIEF_BRANCH" = "$BRANCH" ] || {
       echo "error: branch mismatch for $ID: the brief says branch=$BRIEF_BRANCH but this spawn selected branch=$BRANCH" >&2
@@ -2931,6 +2967,21 @@ if [ "$KIND" = ship ]; then
   elif [ "$BRIEF_MODE" != "$MODE" ]; then
     echo "error: delivery mismatch for $ID: the brief says mode=$BRIEF_MODE but this spawn passed --mode $MODE; correct the flag or re-scaffold the brief so the worker's instructions and the task record agree" >&2
     exit 1
+  fi
+  # The publish authorization is a per-task decision the brief renders into the
+  # worker's instructions, so an explicit --publish that disagrees is refused the
+  # same way a mode mismatch is.
+  if [ "$BRIEF_PUBLISH_LINE" -gt 0 ]; then
+    fm_publish_valid_for_mode "$BRIEF_PUBLISH" "$MODE" "$SOURCE_BRIEF" || exit 1
+    if [ "$PUBLISH_SET" -eq 1 ] && [ "$PUBLISH" != "$BRIEF_PUBLISH" ]; then
+      echo "error: publish mismatch for $ID: the brief says publish=$BRIEF_PUBLISH but this spawn passed --publish $PUBLISH; correct the flag or re-scaffold the brief so the worker's instructions and the task's authorization agree" >&2
+      exit 1
+    fi
+  elif [ "$PUBLISH_SET" -eq 1 ]; then
+    echo "error: $SOURCE_BRIEF records no publish authorization line, so --publish $PUBLISH cannot reach the worker; re-scaffold it with fm-brief.sh --publish $PUBLISH" >&2
+    exit 1
+  elif [ -n "$BRIEF_MODE" ]; then
+    echo "warning: $BRIEF records no publish authorization line (scaffolded before the review-then-hold contract); its definition of done predates the review pass" >&2
   fi
   # The registered forge is the captain's confirmed binding (bin/fm-project-mode.sh)
   # and is never inferred here from a remote, host, or protocol. A brief that

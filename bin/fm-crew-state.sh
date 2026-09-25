@@ -12,6 +12,9 @@
 # the pane busy-signature) and reconciles the possibly-stale log against it.
 # A ship `done:` is current-state done only when bin/fm-dod-lib.sh accepts the
 # named head as reachable outside the worker's disposable copy; otherwise blocked.
+# A held `done: reviewed, ready in branch <branch>` passes that gate once its
+# review pass's fixes are recovered and reads done, never stuck, even while its
+# passed run is attributed; that run alone reads "reviewed branch held, no PR".
 #
 # The determinism lives entirely here - run-step / pane / log reads, fixed
 # mapping logic, and terminal passed-run PR detail from bounded evidence only,
@@ -404,6 +407,13 @@ change_read_record_bounded() {  # <host> <number>
   FM_PR_RECORD_MERGED=$merged
 }
 
+# 0 when the run or the task record names a PR, so a passed run has a PR whose
+# state is worth reading; a review pass held on its branch names none.
+run_or_task_has_pr_identity() {
+  fm_pr_url_parse "$(strip_quotes "$(nm_field pr)")" && return 0
+  fm_pr_metadata_identity_parse "$META"
+}
+
 passed_pr_detail() {
   local provider url host path number owner repo raw_pr state_lc
   raw_pr=$(strip_quotes "$(nm_field pr)")
@@ -629,6 +639,21 @@ $rows
 EOF
   return 1
 }
+# 0 when a done run must still pass the ship done gate before it reads done:
+# the held reviewed-branch report in any mode, or any gated direct-PR or
+# local-only report, which the status-log path gates the same way.
+run_step_done_needs_gate() {
+  local note mode
+  fm_dod_should_gate_ship_done "$KIND" "$(meta_value mode)" "$LOG_LINE" || return 1
+  note=$(status_line_note "$LOG_LINE")
+  fm_dod_note_reports_held_branch "$note" && return 0
+  mode=$(meta_value mode)
+  case "$mode" in
+    direct-PR|local-only) return 0 ;;
+  esac
+  return 1
+}
+
 log_reports_ci_ready() {
   [ "$LOG_VERB" = "done" ] || return 1
   fm_dod_note_reports_ci_ready "$(status_line_note "$LOG_LINE")"
@@ -1073,7 +1098,13 @@ if [ "$HAVE_RUN" = 1 ]; then
     if [ -n "$outcome" ]; then
       case "$outcome" in
         passed|passed-with-override) RUN_STATE="done"; RUN_DETAIL=$(passed_pr_detail) ;;
-        passed-with-skips) RUN_STATE="done"; RUN_DETAIL="$(passed_pr_detail) (publication/CI verification skipped)" ;;
+        passed-with-skips)
+          RUN_STATE="done"
+          if run_or_task_has_pr_identity; then
+            RUN_DETAIL="$(passed_pr_detail) (publication/CI verification skipped)"
+          else
+            RUN_DETAIL="review pass passed (push, PR, and CI skipped): reviewed branch held, no PR"
+          fi ;;
         checks-passed) RUN_STATE="done"; RUN_DETAIL="checks green: PR ready for review" ;;
         failed)
           if nm_reclassify_failed_run_as_held_green; then :; else
@@ -1150,6 +1181,14 @@ if [ "$HAVE_RUN" = 1 ]; then
     if [ "$CI_LOG_STATE" != not-ready ]; then
       emit_ship_status_done "run still monitoring PR"
     fi
+  fi
+
+  # A done run agrees with a ship ready report only after the same named-head
+  # gate the status-log path applies: a held reviewed branch must also hold the
+  # run's recovered fixes, and a direct-PR or local-only report its reachable
+  # head. A no-mistakes CI-ready report keeps its forge-read path above.
+  if [ "$RUN_STATE" = "done" ] && [ "$LOG_VERB" = "done" ] && run_step_done_needs_gate; then
+    emit_ship_status_done "${SELECTED_RUN_ID:+run: $SELECTED_RUN_ID}"
   fi
 
   # Reconcile the status log. A needs-decision/blocked log line that the run-step
