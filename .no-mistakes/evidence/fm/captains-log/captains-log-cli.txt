@@ -1,0 +1,30 @@
+$ fm-log.sh sync
+<home>/data/log/2026/09/24/2026-09-24.md
+
+--- day note ---
+[Captain's board](file://<home>/data/log/board.html)
+
+## Carried over
+
+- (nothing carried over)
+
+## Worked through
+
+- 09:00 Started ABC-12 fix login in [[web]] %% fm:c38174fd2e18 %%
+- 09:03 Ready for review: ABC-12 fix login https://github.com/acme/web/pull/7 %% fm:5ed9bfcfe28d %%
+
+## Asked and answered
+
+- Pick a colour: blue or green %% fm:hold:pick-colour %% %% fm:b7be92a66dce %%
+
+## Open at close
+
+- Waiting on you: Pick a colour
+- In flight: ABC-12 fix login
+
+$ fm-log.sh sync (replay)
+note unchanged: 2c11555e
+2026
+board.html
+projects
+queue.md
