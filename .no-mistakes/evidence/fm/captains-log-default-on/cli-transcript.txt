@@ -1,0 +1,32 @@
+$ # fresh home, no config/log
+$ fm-log.sh path
+<tmp>/home/data/log
+exit 0
+$ fm-log.sh start
+<tmp>/home/data/log/2026/09/26/2026-09-26.md
+exit 0
+$ ls config data/log
+<tmp>/home/config:
+fleet-ledger
+
+<tmp>/home/data/log:
+2026
+README.md
+attachments
+board.html
+learnings
+people
+projects
+queue.md
+tickets
+$ printf "~/elsewhere" > config/log; fm-log.sh path
+<tmp>/elsewhere
+$ fm-log.sh disable; fm-log.sh path
+exit 1
+$ fresh home2 with off: start
+exit 3
+<tmp>/h2:
+config
+
+<tmp>/h2/config:
+log
