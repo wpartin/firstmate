@@ -189,8 +189,8 @@ The objection bounds how much weight detection can carry alone, which is the wei
 Read the modes as stopping points rather than as artifacts and they line up cleanly:
 
 - `local-only` stops at a ready branch and publishes nothing. Nothing about a forge applies, because no artifact is made: `bin/fm-merge-local.sh` fast-forwards the project's *local* default branch, and the intake guidance already allows a `local-only` project to have no remote at all.
-- `direct-PR` publishes without the pipeline.
-- `no-mistakes` runs the pipeline, then publishes.
+- `direct-PR` runs the pipeline as a review pass, then the worker publishes.
+- `no-mistakes` runs the pipeline as a review pass, then the pipeline publishes.
 
 On that reading the forge composes with the two modes that publish and is meaningless on the one that does not.
 That inverts both rules the delivery-mode design currently carries, which permit `local-only forge=gerrit` as an annotation that changes nothing and refuse `direct-PR forge=gerrit` outright.
@@ -325,7 +325,7 @@ Contributing upstream removes that duplication for the pipeline-driven path only
 It removes only that part.
 The pipeline never merges: its host interface finds, creates and updates pull requests and reads their state, checks and mergeability, and its `ci` step only verifies that a merge happened.
 Merging, the merge poll and the stack watch below stay with Firstmate wherever publication lives, so Firstmate still needs a Gerrit-aware tool, and submittability and topic-stack reasoning still exist on both sides under this option.
-Publication stays there too for the other delivery path: a `direct-PR` worker never runs the pipeline, so its magic-ref push, `Change-Id` handling and topic stack come from Firstmate's own tool whatever the pipeline gains.
+Publication stays there too for the other delivery path: a `direct-PR` worker runs the pipeline only as a review pass and publishes itself, so its magic-ref push, `Change-Id` handling and topic stack come from Firstmate's own tool whatever the pipeline gains.
 It removes one caller of the forge tool's publication mechanics rather than the mechanics themselves.
 
 The case against is a dependency the other two options do not carry.

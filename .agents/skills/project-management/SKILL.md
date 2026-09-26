@@ -39,8 +39,9 @@ The registry records the project's standing delivery posture and optional ship-b
 `AGENTS.md` section 7 owns how each task's concrete mode, yolo, and branch prefix are resolved at intake and passed explicitly to the brief, the spawn, and any promotion.
 Choose that posture when adding or creating the project:
 
-- `no-mistakes` runs the full validation pipeline before a PR.
-- `direct-PR` pushes and opens a PR without the no-mistakes pipeline.
+Every mode runs the no-mistakes pipeline as a review pass and holds the reviewed branch before anything is published (`bin/fm-dod-lib.sh`).
+- `no-mistakes` publishes, when authorized, through the pipeline's own push, PR, and CI steps.
+- `direct-PR` has the worker push and open the PR itself, when authorized.
 - `local-only` has no required remote or PR and lands only through the approved local fast-forward path.
 - `no-mistakes-prod-only` is a conditional policy rather than one flat mode: genuinely internal-only tooling, automation, contributor or operator process, and release or submission work ships `direct-PR`, while product-facing, mixed, and uncertain work ships `no-mistakes`.
 
@@ -66,8 +67,9 @@ A forge composes with `no-mistakes`, `direct-PR`, and `no-mistakes-prod-only`, a
 Confirm the source URL, local project name, delivery posture, and autonomy posture, stating the resolved default for each rather than asking the captain to invent one.
 Clone into `projects/<name>` and add the registry entry only after the destination is known to be unused.
 A `no-mistakes` or `no-mistakes-prod-only` project must have an `origin` remote and must complete the initialization procedure below, because a conditional policy's product-facing work runs the pipeline while its internal-only work still takes the direct PR.
-A `direct-PR` project needs an `origin` remote but skips no-mistakes initialization.
-A `local-only` project may have no remote and skips no-mistakes initialization.
+A `direct-PR` project needs an `origin` remote but skips intake no-mistakes initialization.
+A `local-only` project may have no remote and skips intake no-mistakes initialization.
+Every ship worker still initializes no-mistakes in its own worktree for the review pass (`bin/fm-brief.sh`).
 
 ## Create a project
 

@@ -290,6 +290,63 @@ test_keyed_and_spaced_done_lines_are_gated() {
   pass "keyed and spaced ship done: lines are gated"
 }
 
+# A no-mistakes stand-in answering only `axi status` from a worker copy: a
+# passed run whose result is the copy's HEAD with custody returned, unless a case
+# overrides the outcome, the pipeline head, or the next action.
+make_fake_no_mistakes() {  # <dir>
+  mkdir -p "$1"
+  cat > "$1/no-mistakes" <<'SH'
+#!/usr/bin/env bash
+[ "${1:-} ${2:-}" = "axi status" ] || exit 2
+head=$(git rev-parse HEAD 2>/dev/null) || exit 1
+pipeline=${FM_TEST_NM_PIPELINE_HEAD:-$head}
+printf 'run:\n  id: "RUNFIXTURE"\n  status: completed\n  head_sha: %s\noutcome: %s\n' "$pipeline" "${FM_TEST_NM_OUTCOME-passed-with-skips}"
+printf 'branch_sync:\n  state: custody_returned\n  pipeline:\n    current_head: %s\n' "$pipeline"
+if [ -n "${FM_TEST_NM_NEXT_ACTION:-}" ]; then
+  printf '  next_action:\n    code: %s\n' "$FM_TEST_NM_NEXT_ACTION"
+fi
+SH
+  chmod +x "$1/no-mistakes"
+}
+
+# The held report every mode gives when publishing is not authorized is
+# done-and-held once the review pass's fixes are recovered: it needs no remote,
+# only the named head on a branch of the project's local repository.
+test_held_reviewed_branch_done_is_accepted_without_a_remote() {
+  local fakebin mode repo wt slug reason rc
+  fakebin="$TMP_ROOT/held-bin"
+  make_fake_no_mistakes "$fakebin"
+  for mode in no-mistakes direct-PR local-only; do
+    slug=$(printf '%s' "$mode" | tr '[:upper:]' '[:lower:]')
+    repo="$TMP_ROOT/held-$slug-repo"
+    wt="$TMP_ROOT/held-$slug-wt"
+    fm_git_worktree "$repo" "$wt" "fm/held-$slug"
+    git -C "$wt" commit -q --allow-empty -m 'reviewed work'
+    fm_dod_should_gate_ship_done ship "$mode" "done: reviewed, ready in branch fm/held-$slug" \
+      || fail "$mode: the held report was not gated"
+    PATH="$fakebin:$PATH" accept_done ship "$mode" "$wt" "$repo" "done [at=1]: reviewed, ready in branch fm/held-$slug" >/dev/null \
+      || fail "$mode: a held reviewed branch with recovered fixes was refused"
+    rc=0
+    reason=$(PATH="$fakebin:$PATH" FM_TEST_NM_NEXT_ACTION=recover_custody \
+      accept_done ship "$mode" "$wt" "$repo" "done: reviewed, ready in branch fm/held-$slug") || rc=$?
+    [ "$rc" -eq 1 ] || fail "$mode: a held branch whose fixes are still in the gate was accepted"
+    assert_contains "$reason" "still holds this copy's branch" "$mode: the unrecovered refusal did not say why"
+    rc=0
+    reason=$(PATH="$fakebin:$PATH" FM_TEST_NM_OUTCOME=failed \
+      accept_done ship "$mode" "$wt" "$repo" "done: reviewed, ready in branch fm/held-$slug") || rc=$?
+    [ "$rc" -eq 1 ] || fail "$mode: a held branch whose review pass failed was accepted"
+    assert_contains "$reason" "not a pass" "$mode: the failed-run refusal did not say why"
+  done
+  # A held head on no branch of the project is only in the disposable copy.
+  git -C "$wt" checkout -q --detach HEAD
+  git -C "$wt" branch -q -D fm/held-local-only
+  rc=0
+  reason=$(PATH="$fakebin:$PATH" accept_done ship local-only "$wt" "$repo" "done: reviewed, ready in branch fm/held-local-only") || rc=$?
+  [ "$rc" -eq 1 ] || fail "a held head on no project branch was accepted"
+  assert_contains "$reason" "is not on a branch of the project's local repository" "the branchless refusal did not say why"
+  pass "held reviewed-branch done: is accepted once its review fixes are recovered, in every mode"
+}
+
 test_non_done_lines_are_not_gated() {
   local repo wt
   repo="$TMP_ROOT/nongate-repo"
@@ -382,6 +439,7 @@ test_keyed_and_spaced_done_lines_are_gated
 test_local_only_linked_branch_is_accepted
 test_local_only_detached_head_is_refused
 test_standalone_local_only_needs_project_ref
+test_held_reviewed_branch_done_is_accepted_without_a_remote
 test_non_done_lines_are_not_gated
 test_fenced_and_indented_captain_lines_are_not_intent
 

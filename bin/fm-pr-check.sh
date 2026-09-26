@@ -17,6 +17,10 @@
 # draft state does not refuse, matching how the head read below is optional.
 # bin/fm-pr-merge.sh records through this script with FM_PR_CHECK_MERGE=1 and
 # skips this refusal, because its own merge-time draft refusal is authoritative.
+# A task held on its reviewed branch (bin/fm-dod-lib.sh's review-then-hold
+# contract) has no PR yet and is done-and-held through bin/fm-crew-state.sh;
+# this script arms it only once an authorized publish reports its PR, through
+# the same mode's ready report and gate as any other task.
 # Usage: fm-pr-check.sh <task-id> <pr-url>
 set -eu
 

@@ -10,7 +10,7 @@
 # default-branch base, the immutable ship branch, and - rendered from
 # bin/fm-dod-lib.sh, the single owner an ordinary ship brief also uses - the
 # mode-specific Definition of done, so a promoted worker receives exactly the same
-# delivery contract as a briefed one, including the no-mistakes mode's ask-user
+# delivery contract as a briefed one, including the ask-user
 # escalation rule and --yes ban. The instructions also carry `# Task` with
 # `## Captain's intent` preserved from the scout brief and promotion's ship-time
 # instructions under `## Firstmate spec`; the scout-time spec remains context but
@@ -35,7 +35,10 @@
 # its value against the registry; bin/fm-project-mode.sh's header owns the
 # binding and bin/fm-dod-lib.sh owns what it changes for the worker, including
 # the refusal of a forge on local-only.
-# Usage: fm-promote.sh <task-id> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--branch-prefix <prefix>]
+# --publish <on|off> is the promoted task's publish authorization, defaults to
+# off, and is rendered into the Definition of done exactly as bin/fm-brief.sh
+# renders it (bin/fm-dod-lib.sh owns its meaning; on is refused with local-only).
+# Usage: fm-promote.sh <task-id> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--publish <on|off>] [--branch-prefix <prefix>]
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -66,6 +69,7 @@ YOLO=
 BRANCH_PREFIX=fm/
 MODE_SET=0
 YOLO_SET=0
+PUBLISH=off
 FORGE=none
 POS=()
 want_value=
@@ -77,6 +81,7 @@ for a in "$@"; do
     case "$want_value" in
       mode) MODE=$a; MODE_SET=1 ;;
       yolo) YOLO=$a; YOLO_SET=1 ;;
+      publish) PUBLISH=$a ;;
       branch-prefix) BRANCH_PREFIX=$a ;;
     esac
     want_value=
@@ -87,6 +92,8 @@ for a in "$@"; do
     --mode=*) MODE=${a#--mode=}; MODE_SET=1 ;;
     --yolo) want_value=yolo ;;
     --yolo=*) YOLO=${a#--yolo=}; YOLO_SET=1 ;;
+    --publish) want_value=publish ;;
+    --publish=*) PUBLISH=${a#--publish=} ;;
     --branch-prefix) want_value="branch-prefix" ;;
     --branch-prefix=*) BRANCH_PREFIX=${a#--branch-prefix=} ;;
     *) POS+=("$a") ;;
@@ -113,6 +120,7 @@ case "$YOLO" in
   on|off) ;;
   *) echo "error: --yolo must be on or off (got '$YOLO')" >&2; exit 1 ;;
 esac
+fm_publish_valid_for_mode "$PUBLISH" "$MODE" "fm-promote.sh --publish" || exit 1
 # A posture this forge cannot carry is refused once the registry binding has been
 # read. Merge authority on a Gerrit forge is refused rather than quietly dropped,
 # on the captain's decision of 2026-09-15 (bin/fm-project-mode.sh's header carries
@@ -229,10 +237,7 @@ fi
 # promoted no-mistakes worker that never received the ask-user escalation rule or
 # the --yes ban is the delivery hole this file used to leave open.
 INSTRUCTIONS="$DATA/$ID/ship-instructions.md"
-PROMOTION_ASK_USER_BLOCK=
-if [ "$MODE" = no-mistakes ]; then
-  PROMOTION_ASK_USER_BLOCK=$(fm_ask_user_escalation_block "$DATA" "$ID")
-fi
+PROMOTION_ASK_USER_BLOCK=$(fm_ask_user_escalation_block "$DATA" "$ID")
 IFS= read -r -d '' PROMOTION_SHIP_SPEC <<EOF || true
 If these promotion steps were already completed before a relaunch, preserve the existing \`$BRANCH_Q\` branch and continue from its current state; do not repeat them destructively.
 1. **Verify isolation before anything else.** Run \`pwd -P\` and \`git rev-parse --show-toplevel\`; both must resolve to the disposable task worktree you were launched in, such as a treehouse pool path or an Orca-managed worktree, not the primary checkout firstmate operates from. If either does not resolve to the worktree you were launched in, stop and escalate to firstmate.
@@ -260,7 +265,7 @@ EOF
     printf '%s\n' "$PROMOTION_ASK_USER_BLOCK"
   fi
   printf '\n'
-  fm_dod_block "$MODE" "$ID" "$BRANCH" "$FORGE"
+  fm_dod_block "$MODE" "$ID" "$BRANCH" "$FORGE" "$PUBLISH"
 }
 mkdir -p "$DATA/$ID"
 [ ! -d "$INSTRUCTIONS" ] || { echo "error: ship instructions path is a directory: $INSTRUCTIONS" >&2; exit 1; }
