@@ -313,6 +313,10 @@ test_start_defaults_on_and_honors_off_and_a_folder() {
   assert_present "$home/data/log/README.md" "start lays out the log"
   assert_present "$(day_note "$home" 2026-09-24)" "today's note"
   run_log "$home" start >/dev/null || fail "a second start was not idempotent"
+  for bad in abc 0 ''; do
+    run_log "$home" start --wait "$bad" >/dev/null 2>&1; rc=$?
+    assert_equals 2 "$rc" "start --wait '$bad'"
+  done
   home="$TMP_ROOT/start-off"
   mkdir -p "$home/state" "$home/data" "$home/config"
   printf 'off\n' > "$home/config/log"

@@ -215,6 +215,12 @@ materialize() {  # <root>
   write_readme "$1"
 }
 
+# Print a --wait value when it is a positive whole number of seconds; fail otherwise.
+valid_wait() {  # <value>
+  case "$1" in ''|*[!0-9]*|0) return 1 ;; esac
+  printf '%s\n' "$1"
+}
+
 with_write_lock() {  # <command...>
   local rc
   load_lock_lib
@@ -244,7 +250,7 @@ case "$cmd" in
     ;;
   start)
     wait=10
-    if [ "${1:-}" = --wait ]; then [ "$#" -eq 2 ] || usage; wait=$2; shift 2; fi
+    if [ "${1:-}" = --wait ]; then [ "$#" -eq 2 ] || usage; wait=$(valid_wait "$2") || usage; shift 2; fi
     [ "$#" -eq 0 ] || usage
     root=$(log_root) || exit 3
     materialize "$root"
@@ -264,7 +270,7 @@ case "$cmd" in
     while [ "$#" -gt 0 ]; do
       case "$1" in
         --quiet) [ "$cmd" = sync ] || usage; quiet=1 ;;
-        --wait) shift; wait=${1:-}; case "$wait" in ''|*[!0-9]*|0) usage ;; esac ;;
+        --wait) shift; wait=$(valid_wait "${1:-}") || usage ;;
         *) usage ;;
       esac
       shift
