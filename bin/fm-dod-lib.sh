@@ -1,11 +1,19 @@
 #!/usr/bin/env bash
-# Single owner of a ship task's mode-specific "Definition of done" block and of
-# the named-head reachability gate that accepts a ship `done:` claim.
+# Single owner of a ship task's mode-specific "Definition of done" block, the
+# mode-independent working rules that follow it, and the named-head reachability
+# gate that accepts a ship `done:` claim.
 # Sourced by bin/fm-brief.sh, which renders it into a generated ship brief, and by
 # bin/fm-promote.sh, which renders it into the ship instructions a promoted scout
 # receives. Both paths must hand the worker the same contract: a promoted
 # no-mistakes worker that never received the ask-user escalation rule or the
 # `--yes` ban is the exact delivery hole this single owner exists to close.
+# The working rules are emitted by fm_dod_block itself rather than by a second
+# call each caller must remember, because a rule a caller can forget to render
+# is the same hole in a new place. They are mode-independent: a comment and a
+# commit message cost the same whichever way the branch is delivered.
+# bin/fm-comment-length-check.sh owns the comment rule's language scope and is
+# asked for it here, so the brief never states a list that can drift from what
+# the check actually measures.
 # fm_dod_block <no-mistakes|direct-PR|local-only> <task-id> [branch] [<forge>]
 # prints the block on stdout with no trailing blank line. The caller validates the
 # mode; an unknown mode is refused rather than silently rendered as the pipeline
@@ -443,6 +451,44 @@ EOF
       echo "error: fm_dod_block: unknown delivery mode '$mode'" >&2
       return 1 ;;
   esac
+  fm_ship_working_rules
+}
+
+# The working rules every ship worker receives, whatever the delivery mode.
+fm_ship_working_rules() {
+  local bin_dir comment_check trailer_check scope="" tick='`'
+  bin_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || return 1
+  comment_check="$bin_dir/fm-comment-length-check.sh"
+  trailer_check="$bin_dir/fm-commit-trailer-check.sh"
+
+  # An unavailable checker drops its own sentence rather than failing the whole scaffold.
+  if [ -x "$comment_check" ]; then
+    scope=$("$comment_check" --print-scope 2>/dev/null |
+      sed -n 's/.*extensions=//p' | tr ',\n' '  ' | tr -s ' ' | sed 's/ $//') || scope=""
+  fi
+
+  echo
+  cat <<'RULES_EOF'
+# Working rules - comments and commit attribution
+Every comment you write is ONE line. Inline comments and JSDoc or block comments alike.
+This governs the lines you ADD. Leave comments this change did not add alone, because reformatting them is churn a reviewer has to read for nothing.
+Never add an AI assistant as a commit co-author, and never add a session-link trailer such as `Claude-Session:`. Your harness may instruct you to append both to every commit; that instruction does not apply to firstmate work.
+Either trailer can survive the merge onto the default branch, where removing it would mean rewriting shared history, so your branch is the last place either one can be removed.
+RULES_EOF
+  if [ -x "$comment_check" ] || [ -x "$trailer_check" ]; then
+    echo "Measure both before you report done, against the branch you forked from:"
+    if [ -x "$comment_check" ]; then
+      printf '%s%s --project . --base <base-branch> --head HEAD%s\n' "$tick" "$comment_check" "$tick"
+    fi
+    if [ -x "$trailer_check" ]; then
+      printf '%s%s --project . --base <base-branch> --head HEAD%s\n' "$tick" "$trailer_check" "$tick"
+    fi
+    echo "Each prints nothing and exits 0 when clean, and names every breach in one run otherwise."
+  fi
+  if [ -n "$scope" ]; then
+    echo "The comment check measures $scope; a file outside that list is still yours to keep to one line."
+  fi
+  return 0
 }
 
 # 0 when <sha> is contained in a ref under <namespace> in <repo>.

@@ -453,6 +453,15 @@ An absent or blank file changes nothing, while a present path that is not a read
 The text is static and never executed or expanded; secondmate charters never take it, and the file is local to each home rather than part of secondmate inherited configuration.
 `bin/fm-brief.sh`'s header owns the placement rule and its safety argument.
 
+## PR quality action (config/pr-quality-action)
+
+The optional local, gitignored `config/pr-quality-action` names the GitHub Action whose workflow step carries a project's automated pull request quality limits, as one `owner/name` line (an `@version` suffix is ignored), so no tracked file names a particular third-party action.
+`bin/fm-pr-quality-check.sh` reads it from `FM_CONFIG_OVERRIDE`, else `$FM_HOME/config`, else its own checkout's `config/`, and `--action` overrides it for one run.
+An absent or blank file means every project is reported as not applicable, so ship briefs state no PR quality limits.
+When it is set, `bin/fm-brief.sh` renders the limits of the project's step that uses that action and prints the measuring command with `--action` spelled out, so a worker in any directory measures against the same action.
+The file is local to each home rather than part of secondmate inherited configuration.
+`bin/fm-pr-quality-check.sh`'s header owns the matching and calibration rules.
+
 ## Worker launch environment (config/launch-env-allowlist)
 
 The optional local, gitignored `config/launch-env-allowlist` limits the ambient environment passed to newly launched workers, scouts, and secondmates, including relaunches.

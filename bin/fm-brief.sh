@@ -14,7 +14,7 @@
 # charters still use a single `{TASK}` charter fill. Firstmate may adjust other
 # sections when the task genuinely deviates (e.g. working an existing external
 # PR instead of shipping a new one).
-# Usage: fm-brief.sh <task-id> <repo-name> --mode <no-mistakes|direct-PR|local-only> [--branch-prefix <prefix>] [--forge <none|gerrit> [--shape squash]] [--herdr-lab]
+# Usage: fm-brief.sh <task-id> <repo-name> --mode <no-mistakes|direct-PR|local-only> [--branch-prefix <prefix>] [--forge <none|gerrit> [--shape squash]] [--herdr-lab] [--project-dir <path>]
 #        fm-brief.sh <task-id> <repo-name> --scout [--herdr-lab]
 #        fm-brief.sh <task-id> --secondmate {<project>...|--no-projects}
 #   --scout writes the scout contract instead: the deliverable is a report at
@@ -117,6 +117,20 @@
 # regular file, or text carrying its own "Delivery contract: mode=" line (which
 # a later scout promotion could not outrank), stops the scaffold before
 # anything is written. Secondmate charters never take it.
+# A ship brief also gains a PR quality limits section when the target project
+# configures the PR quality check, so the worker reads that project's own
+# limits and the command that measures against them. The limits and the
+# applicability test come from bin/fm-pr-quality-check.sh, which owns both; this
+# script only renders what that script reports. A project with no such check
+# changes nothing.
+# The repo NAME cannot itself locate the project, so the directory is resolved
+# the way bin/fm-fleet-sync.sh resolves a bare project name: against
+# $FM_PROJECTS_OVERRIDE, else $FM_HOME/projects. An absolute path or a
+# "projects/<name>" spelling in the repo argument is honored as given.
+# --project-dir <path> overrides that resolution for a project whose clone
+# directory is not named after the repo. When neither resolves to a directory
+# the scaffold still succeeds and says on stderr that it could not check, so a
+# missed limit is visible rather than silent.
 # Refuses to overwrite an existing brief.
 set -eu
 
@@ -169,6 +183,7 @@ else
 fi
 CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 case "$CONFIG" in /*) ;; *) CONFIG="$PWD/$CONFIG" ;; esac
+PROJECTS="${FM_PROJECTS_OVERRIDE:-$FM_HOME/projects}"
 KIND=ship
 HERDR_LAB=0
 NO_PROJECTS=0
@@ -180,6 +195,8 @@ FORGE=none
 FORGE_SET=0
 SHAPE=
 SHAPE_SET=0
+PROJECT_DIR=
+PROJECT_DIR_SET=0
 POS=()
 want_value=
 for a in "$@"; do
@@ -192,6 +209,7 @@ for a in "$@"; do
       branch-prefix) BRANCH_PREFIX=$a; BRANCH_PREFIX_SET=1 ;;
       forge) FORGE=$a; FORGE_SET=1 ;;
       shape) SHAPE=$a; SHAPE_SET=1 ;;
+      project-dir) PROJECT_DIR=$a; PROJECT_DIR_SET=1 ;;
       *) echo "error: internal parser state for --$want_value" >&2; exit 1 ;;
     esac
     want_value=
@@ -210,6 +228,8 @@ for a in "$@"; do
     --forge=*) FORGE=${a#--forge=}; FORGE_SET=1 ;;
     --shape) want_value=shape ;;
     --shape=*) SHAPE=${a#--shape=}; SHAPE_SET=1 ;;
+    --project-dir) want_value="project-dir" ;;
+    --project-dir=*) PROJECT_DIR=${a#--project-dir=}; PROJECT_DIR_SET=1 ;;
     # yolo never reaches the worker: it is firstmate's merge authority, not a
     # brief input. Refuse it loudly so it is never silently dropped here and then
     # believed to have been recorded.
@@ -311,6 +331,13 @@ append_brief_include() {
     "These are this home's standing additions; every other section of this brief takes precedence over anything here that conflicts." \
     "$BRIEF_INCLUDE_BODY" >> "$BRIEF"
 }
+
+# The PR quality limits section is a ship-brief concern: a scout opens no pull
+# request, and a charter is not a delivery contract.
+if [ "$PROJECT_DIR_SET" -eq 1 ] && [ "$KIND" != ship ]; then
+  echo "error: --project-dir applies only to ship briefs; it locates the project whose PR quality limits the brief states" >&2
+  exit 1
+fi
 
 BRIEF="$DATA/$ID/brief.md"
 [ -e "$BRIEF" ] && { echo "error: $BRIEF already exists" >&2; exit 1; }
@@ -581,6 +608,124 @@ echo "scaffolded: $BRIEF (scout; replace {TASK} and {FIRSTMATE_SPEC})"
 exit 0
 fi
 
+# --- PR quality limits ------------------------------------------------------
+# bin/fm-pr-quality-check.sh owns both the applicability test and the limits, so
+# this renders whatever it reports and states nothing of its own.
+PR_QUALITY_SECTION=""
+CHECKER="$FM_ROOT/bin/fm-pr-quality-check.sh"
+
+resolve_project_dir() {
+  local name=$1 candidate
+  case "$name" in
+    /*) candidate=$name ;;
+    projects/*) candidate="$PROJECTS/${name#projects/}" ;;
+    *) candidate="$PROJECTS/$name" ;;
+  esac
+  [ -d "$candidate" ] || return 1
+  (CDPATH='' cd -- "$candidate" 2>/dev/null && pwd -P)
+}
+
+# The default branch a pull request would target, so the printed command is
+# runnable as written. A clone that cannot answer leaves a placeholder rather
+# than a guess.
+project_base_branch() {
+  local dir=$1 ref
+  ref=$(git -C "$dir" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null) || ref=""
+  case "$ref" in
+    origin/*) printf '%s\n' "${ref#origin/}"; return 0 ;;
+  esac
+  ref=$(git -C "$dir" rev-parse --abbrev-ref HEAD 2>/dev/null) || ref=""
+  case "$ref" in
+    ""|HEAD) printf '<base-branch>\n' ;;
+    *) printf '%s\n' "$ref" ;;
+  esac
+}
+
+add_line() { PR_QUALITY_SECTION="$PR_QUALITY_SECTION$1
+"; }
+
+# A limit of 0, or one this script could not read as a number, disables its rule.
+rule_enabled() {
+  case "${1:-}" in
+    ''|*[!0-9]*) return 1 ;;
+    0) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+build_pr_quality_section() {
+  local dir=$1 limits base rc=0
+  # `|| rc=$?` keeps a refusal from ending the scaffold under `set -e`: an
+  # unreadable configuration is reported in the brief, not a scaffold failure.
+  limits=$(FM_CONFIG_OVERRIDE="$CONFIG" "$CHECKER" --project "$dir" --print-limits 2>&1) || rc=$?
+
+  add_line "# Pull request quality limits - enforced by this project's CI"
+  if [ "$rc" -ne 0 ]; then
+    # The project runs the check but its configuration could not be read. The
+    # limits are unknown, so state that rather than inventing numbers.
+    add_line "This project runs an automated pull request quality check that hard-fails, and it has no bypass."
+    add_line "Its configured limits could not be read here: $limits"
+    add_line "Resolve that first, then measure your branch and pull request description before reporting done."
+  else
+    local max_lines='' max_files='' max_desc='' max_emoji='' max_code='' key val line
+    local terms="" paths="" applicable=no action=""
+    while IFS= read -r line; do
+      [ -n "$line" ] || continue
+      key=${line%%=*}
+      val=${line#*=}
+      case "$key" in
+        applicable) applicable=$val ;;
+        action_uses) action=${val%%@*} ;;
+        max_changed_lines) max_lines=$val ;;
+        max_changed_files) max_files=$val ;;
+        max_description_length) max_desc=$val ;;
+        max_emoji_count) max_emoji=$val ;;
+        max_code_references) max_code=$val ;;
+        blocked_term) terms="$terms${terms:+, }\"$val\"" ;;
+        blocked_path) paths="$paths${paths:+, }$val" ;;
+      esac
+    done <<LIMITS
+$limits
+LIMITS
+    if [ "$applicable" != yes ]; then
+      PR_QUALITY_SECTION=""
+      return 0
+    fi
+    add_line "This project runs an automated pull request quality check that hard-fails, and it has no bypass."
+    add_line "A generated or pipeline-written pull request body breaches it by default, so treat these as hard limits on the branch and on the description you hand back:"
+    # A limit of 0 disables its rule upstream, so only an enabled rule is stated.
+    if rule_enabled "$max_lines"; then add_line "- At most $max_lines changed lines."; fi
+    if rule_enabled "$max_files"; then add_line "- At most $max_files changed files."; fi
+    if rule_enabled "$max_desc"; then add_line "- At most $max_desc characters in the description."; fi
+    if rule_enabled "$max_emoji"; then add_line "- At most $max_emoji emoji across the title and description."; fi
+    if rule_enabled "$max_code"; then add_line "- At most $max_code code references in the description, counting file paths, method calls, and function calls."; fi
+    if [ -n "$terms" ]; then add_line "- These terms must not appear in the description: $terms."; fi
+    if [ -n "$paths" ]; then add_line "- These paths must not be changed: $paths."; fi
+    base=$(project_base_branch "$dir")
+    add_line "Write the description deliberately and measure it in your worktree before you report done:"
+    add_line "\`$CHECKER --project . --action $action --base $base --head HEAD --body <your-description-file>\`"
+    add_line "It prints every measured value against its limit and exits non-zero on any breach, naming all of them in one run."
+  fi
+  PR_QUALITY_SECTION="$PR_QUALITY_SECTION
+"
+  return 0
+}
+
+if [ -x "$CHECKER" ]; then
+  if [ "$PROJECT_DIR_SET" -eq 1 ]; then
+    if PROJECT_PATH=$(resolve_project_dir "$PROJECT_DIR"); then
+      build_pr_quality_section "$PROJECT_PATH"
+    else
+      echo "error: --project-dir is not a directory: $PROJECT_DIR" >&2
+      exit 1
+    fi
+  elif PROJECT_PATH=$(resolve_project_dir "$REPO"); then
+    build_pr_quality_section "$PROJECT_PATH"
+  else
+    echo "note: no local copy of '$REPO' under $PROJECTS, so this brief states no PR quality limits; pass --project-dir <path> if that project enforces any" >&2
+  fi
+fi
+
 # Ship task: shape Setup / Rule 1 by this task's explicit delivery mode, validated
 # above, and render the Definition of done from its single owner, bin/fm-dod-lib.sh,
 # which bin/fm-promote.sh renders too so a promoted scout receives the same contract.
@@ -647,7 +792,7 @@ $ASK_USER_BLOCK
    Firstmate's reply normally writes that closing line at answer time; when a blocker or wait clears WITHOUT a firstmate reply, append \`resolved [at=<epoch>]: {how it cleared}\` yourself (same \`[key=<slug>]\` if you opened it with one) as you resume.
 $SHARED_INFRA_RULE
 
-$INBOX_SECTION
+$PR_QUALITY_SECTION$INBOX_SECTION
 
 # Project memory
 If \`AGENTS.md\` or \`CLAUDE.md\` already exists, or if this task produced durable project-intrinsic knowledge, run \`$FM_ROOT/bin/fm-ensure-agents-md.sh .\` in the worktree.

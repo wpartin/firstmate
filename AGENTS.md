@@ -46,7 +46,7 @@ Shared tracked material is `AGENTS.md`, `README.md`, `CONTRIBUTING.md`, `.tasks.
 When any crewmate is live, delegate changes to shared tracked material rather than competing with supervision; when the fleet is empty, firstmate may change it directly.
 This repo is a shared template, while `.env`, `data/`, `state/`, `config/`, `projects/`, and `.no-mistakes/` are captain-private and gitignored.
 Ship shared tracked changes through this repo's no-mistakes pipeline and PR path, with the same merge authority as any other project.
-Never add an agent name as a commit co-author.
+Never add an agent name as a commit co-author, and never add a session-link trailer to a commit message.
 
 ## 2. Layout and state
 
@@ -85,6 +85,7 @@ config/herdr-presentation-spaces  optional "off" opt-out from, or "on" opt-in to
 config/trace-context  optional presence flag enabling default-off native W3C trace-context propagation to spawned agents; LOCAL, gitignored; inherited by secondmate homes; see docs/configuration.md "Trace context propagation" and docs/trace-context.md
 config/lavish-axi-host  optional one-line per-machine Lavish server address; LOCAL, gitignored, inherited by secondmate homes, and exported into every worker launch; see docs/configuration.md "Lavish server address" for opening versus polling
 config/brief-include.md  optional standing worker instructions appended verbatim as the last section of every ship and scout scaffold; LOCAL, gitignored, and not inherited; keep its text out of `## Firstmate spec`; see docs/configuration.md "Home brief include"
+config/pr-quality-action  optional one-line `owner/name` GitHub Action whose workflow step carries a project's PR quality limits, read by bin/fm-pr-quality-check.sh and ship briefs; LOCAL, gitignored, and not inherited; absent = no PR quality limits; see docs/configuration.md "PR quality action"
 config/fleet-ledger  optional presence flag opting this home in to the default-off fleet activity ledger state/fleet-ledger.jsonl that outside tools can follow; LOCAL, gitignored, and not inherited; see docs/fleet-ledger.md
 config/turnend-churn-absorb  optional presence flag opting this home into the default-off absorb of bare turn-end wakes on pane churn; LOCAL, gitignored, and not inherited; see docs/configuration.md "Turn-end pane-churn absorb"
 config/wedge-defer-parked-gate  optional presence flag opting this home into the default-off deferral of a wedge escalation for a lane parked at a validation gate awaiting the supervisor's own still-open decision; LOCAL, gitignored, and not inherited; see docs/configuration.md "Parked-gate wait deferral"
@@ -401,6 +402,7 @@ The worker reports the PR when CI first becomes green rather than waiting for me
 ### PR ready, landing, and teardown
 
 For PR-based ship tasks, the ready signal depends on mode: `no-mistakes` reports `done [at=<epoch>]: PR <url> checks green` after CI is green, while `direct-PR` reports `done [at=<epoch>]: PR <url>` after opening the PR, each only for a non-draft PR; a lane that deliberately holds a draft declares a wait instead, and `bin/fm-pr-check.sh` refuses to arm merge monitoring on a draft.
+Before handing the captain a branch or a PR body you drafted, measure it with `bin/fm-pr-quality-check.sh`, which reports not applicable for a project that enforces no automated PR quality check, and with `bin/fm-comment-length-check.sh` and `bin/fm-commit-trailer-check.sh`, which apply to every project.
 Run `bin/fm-pr-check.sh <id> <PR url>` with the URL copied from that ready signal or the resolved checks-green `fm-crew-state.sh` line - it records `pr=` and the forge's `pr_head=` when available in the task's meta and arms the watcher's merge poll.
 `bin/fm-dod-lib.sh` owns the named-head gate on that ready signal: a ship `done:` whose named head exists only in the worker's disposable copy is not ready (`bin/fm-crew-state.sh` reports blocked, `bin/fm-pr-check.sh` refuses to register, and a secondmate does not publish that done upstream).
 That blocked reading is the gate working, not a stuck worker, so steer the worker on the commit the refusal names rather than waiting.
