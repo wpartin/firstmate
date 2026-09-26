@@ -16,7 +16,7 @@ ok - fm-promote: a promoted worker receives the same mode-specific delivery cont
 ●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
 ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ok - fm-promote: a selected branch prefix reaches both worker instructions and durable task state
-Switched to a new branch '$(touch${IFS}/private/var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/fm-task-delivery.i5cmSo/promote-branch-shell-safe-marker)/promote-branch-safe-e3'
+Switched to a new branch '$(touch${IFS}/private/var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/fm-task-delivery.fp8Nlm/promote-branch-shell-safe-marker)/promote-branch-safe-e3'
 ok - fm-promote: ref-format-valid shell metacharacters stay literal in promotion branch commands
 ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ●  WATCHER DOWN - SUPERVISION IS OFF
@@ -29,22 +29,22 @@ ok - fm-merge-local: a registry change cannot redirect an in-flight local-only t
 ok - fm-project-mode: the conditional policy is accepted, mapped for mechanical callers, and readable raw
 ok - fm-project-mode: the forge binds from its own token and is reported only through --forge
 ok - fm-project-mode: only a malformed forge binding refuses; every other token keeps its old tolerance
-note: no local copy of 'proj' under /private/var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/fm-task-delivery.i5cmSo/forge-yolo-spawn/home/projects, so this brief states no PR quality limits; pass --project-dir <path> if that project enforces any
+note: no local copy of 'proj' under /private/var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/fm-task-delivery.fp8Nlm/forge-yolo-spawn/home/projects, so this brief states no PR quality limits; pass --project-dir <path> if that project enforces any
 ok - forge=gerrit: yolo is refused with its reason, never silently dropped
-note: no local copy of 'review-server-project' under /private/var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/fm-task-delivery.i5cmSo/forge-dod/home/projects, so this brief states no PR quality limits; pass --project-dir <path> if that project enforces any
-note: no local copy of 'other-project' under /private/var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/fm-task-delivery.i5cmSo/forge-dod/home/projects, so this brief states no PR quality limits; pass --project-dir <path> if that project enforces any
+note: no local copy of 'review-server-project' under /private/var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/fm-task-delivery.fp8Nlm/forge-dod/home/projects, so this brief states no PR quality limits; pass --project-dir <path> if that project enforces any
+note: no local copy of 'other-project' under /private/var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/fm-task-delivery.fp8Nlm/forge-dod/home/projects, so this brief states no PR quality limits; pass --project-dir <path> if that project enforces any
 ok - forge=gerrit: no-mistakes runs with its forge steps skipped, recovers its fixes, then publishes one change
-note: no local copy of 'review-server-project' under /private/var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/fm-task-delivery.i5cmSo/forge-direct/home/projects, so this brief states no PR quality limits; pass --project-dir <path> if that project enforces any
+note: no local copy of 'review-server-project' under /private/var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/fm-task-delivery.fp8Nlm/forge-direct/home/projects, so this brief states no PR quality limits; pass --project-dir <path> if that project enforces any
 ok - forge=gerrit: direct-PR publishes one squashed change and a stack is refused with its reason
-note: no local copy of 'proj' under /private/var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/fm-task-delivery.i5cmSo/forge-agree-gerrit/home/projects, so this brief states no PR quality limits; pass --project-dir <path> if that project enforces any
-note: no local copy of 'proj' under /private/var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/fm-task-delivery.i5cmSo/forge-agree-gerrit/home/projects, so this brief states no PR quality limits; pass --project-dir <path> if that project enforces any
-note: no local copy of 'proj' under /private/var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/fm-task-delivery.i5cmSo/forge-agree-gerrit/home/projects, so this brief states no PR quality limits; pass --project-dir <path> if that project enforces any
-note: no local copy of 'proj' under /private/var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/fm-task-delivery.i5cmSo/forge-agree-unbound/home/projects, so this brief states no PR quality limits; pass --project-dir <path> if that project enforces any
+note: no local copy of 'proj' under /private/var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/fm-task-delivery.fp8Nlm/forge-agree-gerrit/home/projects, so this brief states no PR quality limits; pass --project-dir <path> if that project enforces any
+note: no local copy of 'proj' under /private/var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/fm-task-delivery.fp8Nlm/forge-agree-gerrit/home/projects, so this brief states no PR quality limits; pass --project-dir <path> if that project enforces any
+note: no local copy of 'proj' under /private/var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/fm-task-delivery.fp8Nlm/forge-agree-gerrit/home/projects, so this brief states no PR quality limits; pass --project-dir <path> if that project enforces any
+note: no local copy of 'proj' under /private/var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/fm-task-delivery.fp8Nlm/forge-agree-unbound/home/projects, so this brief states no PR quality limits; pass --project-dir <path> if that project enforces any
 ok - fm-spawn: a registered forge must reach the worker's brief
-note: no local copy of 'proj' under /private/var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/fm-task-delivery.i5cmSo/branch-agree/home/projects, so this brief states no PR quality limits; pass --project-dir <path> if that project enforces any
-note: no local copy of 'proj' under /private/var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/fm-task-delivery.i5cmSo/branch-agree/home/projects, so this brief states no PR quality limits; pass --project-dir <path> if that project enforces any
+note: no local copy of 'proj' under /private/var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/fm-task-delivery.fp8Nlm/branch-agree/home/projects, so this brief states no PR quality limits; pass --project-dir <path> if that project enforces any
+note: no local copy of 'proj' under /private/var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/fm-task-delivery.fp8Nlm/branch-agree/home/projects, so this brief states no PR quality limits; pass --project-dir <path> if that project enforces any
 ok - fm-spawn: the brief must carry the spawn's selected ship branch, and the selection is validated before anything is created
-note: no local copy of 'proj' under /private/var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/fm-task-delivery.i5cmSo/prefix-deviation/home/projects, so this brief states no PR quality limits; pass --project-dir <path> if that project enforces any
+note: no local copy of 'proj' under /private/var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/fm-task-delivery.fp8Nlm/prefix-deviation/home/projects, so this brief states no PR quality limits; pass --project-dir <path> if that project enforces any
 ok - fm-spawn: a ship branch that deviates from the registered prefix is announced, never blocked
 ok - fm-spawn: a registry forge token the parser refuses stops the launch, reason included
 ok - fm-promote: a promoted worker receives the project's registered forge contract with no flag to remember
