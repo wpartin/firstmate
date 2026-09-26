@@ -42,10 +42,10 @@ T0=1790240400
 snapshot() {  # <home>
   cat > "$1/snapshot.json" <<'EOF'
 {"schema":"fm-bearings.v1",
- "in_flight":[{"id":"fix-login","kind":"ship","state":"working","repo":"web","name":"ENG-12 fix login","doing":"writing the test"}],
+ "in_flight":[{"id":"fix-login","kind":"ship","state":"working","repo":"web","name":"ABC-12 fix login","doing":"writing the test"}],
  "recorded_prs":[{"id":"fix-login","url":"https://github.com/acme/web/pull/7"}],
  "queue":[
-  {"id":"fix-login","title":"ENG-12 fix login","repo":"web","state":"in_flight","hold_bucket":null,"hold_kind":null,"hold_reason":null,"hold_until":null,"blocked_by":[],"pr_url":null,"done":null,"people":["Ada Lovelace"]},
+  {"id":"fix-login","title":"ABC-12 fix login","repo":"web","state":"in_flight","hold_bucket":null,"hold_kind":null,"hold_reason":null,"hold_until":null,"blocked_by":[],"pr_url":null,"done":null,"people":["Sam Example"]},
   {"id":"pick-colour","title":"Pick a colour","repo":"web","state":"queued","hold_bucket":"live","hold_kind":"captain","hold_reason":"blue or green","hold_until":null,"blocked_by":[],"pr_url":null,"done":null,"people":[]},
   {"id":"later","title":"Later call","repo":"web","state":"queued","hold_bucket":"dated","hold_kind":"captain","hold_reason":"revisit","hold_until":"2027-01-01","blocked_by":[],"pr_url":null,"done":null,"people":[]},
   {"id":"b1","title":"Blocked one","repo":"web","state":"queued","hold_bucket":null,"hold_kind":null,"hold_reason":null,"hold_until":null,"blocked_by":["q2"],"pr_url":null,"done":null,"people":[]},
@@ -65,7 +65,7 @@ test_events_render_golden_day_note_and_replay_is_a_noop() {
   local home note first
   home=$(make_home golden)
   snapshot "$home"
-  printf '(?i)\\b(ENG-[0-9]+)\\b\thttps://tracker.example/issue/{id}\n' > "$home/config/log-tickets"
+  printf '(?i)\\b(ABC-[0-9]+)\\b\thttps://tracker.example/issue/{id}\n' > "$home/config/log-tickets"
   ledger "$home" \
     '{"v":1,"ts":'"$T0"',"event":"task.dispatched","task":"fix-login","kind":"ship","project":"web","harness":"claude","model":null}' \
     '{"v":1,"ts":'"$((T0 + 60))"',"event":"task.status","task":"fix-login","state":"working","key":null,"text":" setup done"}' \
@@ -86,10 +86,10 @@ test_events_render_golden_day_note_and_replay_is_a_noop() {
 
 ## Worked through
 
-- 09:00 Started [[ENG-12]] fix login in [[web]] with [[Ada Lovelace]] %% fm:$(printf '%s' '{"v":1,"ts":'"$T0"',"event":"task.dispatched","task":"fix-login","kind":"ship","project":"web","harness":"claude","model":null}' | shasum | cut -c1-12) %%
-- 09:02 Finished: [[ENG-12]] fix login - PR [x] % ok %% fm:$(printf '%s' '{"v":1,"ts":'"$((T0 + 120))"',"event":"task.status","task":"fix-login","state":"done","key":null,"text":" PR [[x]] %% ok"}' | shasum | cut -c1-12) %%" "$(sed -n '1,10p' "$note")" "golden day note head"
-  has "$(cat "$note")" "- 09:03 Ready for review: [[ENG-12]] fix login https://github.com/acme/web/pull/7 %% fm:"
-  has "$(cat "$note")" "- 09:06 Landed [[ENG-12]] fix login https://github.com/acme/web/pull/7 %% fm:"
+- 09:00 Started [[ABC-12]] fix login in [[web]] with [[Sam Example]] %% fm:$(printf '%s' '{"v":1,"ts":'"$T0"',"event":"task.dispatched","task":"fix-login","kind":"ship","project":"web","harness":"claude","model":null}' | shasum | cut -c1-12) %%
+- 09:02 Finished: [[ABC-12]] fix login - PR [x] % ok %% fm:$(printf '%s' '{"v":1,"ts":'"$((T0 + 120))"',"event":"task.status","task":"fix-login","state":"done","key":null,"text":" PR [[x]] %% ok"}' | shasum | cut -c1-12) %%" "$(sed -n '1,10p' "$note")" "golden day note head"
+  has "$(cat "$note")" "- 09:03 Ready for review: [[ABC-12]] fix login https://github.com/acme/web/pull/7 %% fm:"
+  has "$(cat "$note")" "- 09:06 Landed [[ABC-12]] fix login https://github.com/acme/web/pull/7 %% fm:"
   has "$(cat "$note")" "- Pick a colour: blue or green %% fm:hold:pick-colour %%"
   has "$(cat "$note")" "  - Captain via the fleet board: green %% fm:"
   lacks "$(cat "$note")" "setup done"
@@ -97,11 +97,11 @@ test_events_render_golden_day_note_and_replay_is_a_noop() {
 
 - Waiting on you: Pick a colour
 - Blocked: Blocked one (by q2)
-- In flight: [[ENG-12]] fix login"
-  assert_present "$home/data/log/tickets/ENG-12.md" "ticket note"
-  has "$(cat "$home/data/log/tickets/ENG-12.md")" "[Open in the tracker](https://tracker.example/issue/ENG-12)"
+- In flight: [[ABC-12]] fix login"
+  assert_present "$home/data/log/tickets/ABC-12.md" "ticket note"
+  has "$(cat "$home/data/log/tickets/ABC-12.md")" "[Open in the tracker](https://tracker.example/issue/ABC-12)"
   assert_present "$home/data/log/projects/web.md" "project note"
-  assert_present "$home/data/log/people/Ada Lovelace.md" "people note"
+  assert_present "$home/data/log/people/Sam Example.md" "people note"
   first=$(cd "$home/data/log" && find . -type f -name '*.md' -exec cat {} +)
   run_log "$home" sync >/dev/null 2>&1 || fail "second sync failed"
   : > "$home/state/.log-cursor"
@@ -127,7 +127,7 @@ test_queue_view_renders_from_the_snapshot() {
 
 ## In flight (1)
 
-- ENG-12 fix login
+- ABC-12 fix login
   writing the test https://github.com/acme/web/pull/7
 
 ## Deferred (1)
@@ -174,9 +174,9 @@ test_midnight_split_and_carried_over_seed() {
     '{"v":1,"ts":1790294460,"event":"task.status","task":"fix-login","state":"done","key":null,"text":" all good"}'
   TODAY=2026-09-24 run_log "$home" sync >/dev/null 2>&1 || fail "first sync failed"
   TODAY=2026-09-25 run_log "$home" sync >/dev/null 2>&1 || fail "second sync failed"
-  has "$(cat "$(day_note "$home" 2026-09-24)")" "23:59 Blocked: ENG-12 fix login - need creds"
+  has "$(cat "$(day_note "$home" 2026-09-24)")" "23:59 Blocked: ABC-12 fix login - need creds"
   lacks "$(cat "$(day_note "$home" 2026-09-24)")" "all good"
-  has "$(cat "$(day_note "$home" 2026-09-25)")" "00:01 Finished: ENG-12 fix login - all good"
+  has "$(cat "$(day_note "$home" 2026-09-25)")" "00:01 Finished: ABC-12 fix login - all good"
   has "$(cat "$(day_note "$home" 2026-09-25)")" "## Carried over
 
 - Waiting on you: Pick a colour
@@ -226,8 +226,8 @@ test_no_ticket_patterns_means_no_ticket_links() {
   snapshot "$home"
   ledger "$home" '{"v":1,"ts":'"$T0"',"event":"task.pr_ready","task":"fix-login","pr":"https://github.com/acme/web/pull/7"}'
   run_log "$home" sync >/dev/null 2>&1 || fail "sync failed"
-  assert_absent "$home/data/log/tickets/ENG-12.md" "a ticket note without a configured pattern"
-  lacks "$(cat "$(day_note "$home" 2026-09-24)")" "[[ENG-12]]"
+  assert_absent "$home/data/log/tickets/ABC-12.md" "a ticket note without a configured pattern"
+  lacks "$(cat "$(day_note "$home" 2026-09-24)")" "[[ABC-12]]"
   pass "without config/log-tickets nothing is linked as a ticket"
 }
 
@@ -279,7 +279,7 @@ test_off_unreachable_and_foreign_owner_refuse() {
   printf 'on\n' > "$home/config/log"
   run_log "$home" sync >/dev/null 2>&1 || fail "recovery sync failed"
   assert_absent "$home/state/.log-pending" "pending marker after recovery"
-  has "$(cat "$(day_note "$home" 2026-09-24)")" "Landed ENG-12 fix login on the local branch"
+  has "$(cat "$(day_note "$home" 2026-09-24)")" "Landed ABC-12 fix login on the local branch"
   pass "the log refuses when off, unreachable, or owned by another home, and replays afterwards"
 }
 
