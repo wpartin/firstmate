@@ -1,0 +1,52 @@
+### no-mistakes --publish off
+note: no local copy of 'demo' under /var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.VYxNh82Clw/projects, so this brief states no PR quality limits; pass --project-dir <path> if that project enforces any
+scaffolded: /var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.VYxNh82Clw/data/t-off/brief.md (ship, mode=no-mistakes publish=off; replace {TASK} and {FIRSTMATE_SPEC})
+26:1. Never push to the default branch. Never merge a PR.
+49:   For a no-mistakes ask-user gate specifically, escalate all ask-user findings as one event plus one snapshot file, using that same shape even when the gate holds only a single ask-user finding: write only the ask-user findings, verbatim and unparaphrased (id, severity, file, line, description, authority), to `/var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.VYxNh82Clw/data/t-off/nm-<run>-findings.txt`, then report the gate with
+92:Publish authorization: off
+93:This task ships **no-mistakes**: the review pass below validates the branch, and publishing, when authorized, runs through the pipeline's own push, pr, and ci steps.
+97:That first `done:` is the handoff that starts the review pass; it is not a request to push or publish.
+100:Every change runs the no-mistakes pipeline as a review pass before it is called ready, whatever this task's delivery mode, and that pass pushes and publishes nothing.
+101:Pass `--skip push,pr,ci` on every review-pass `no-mistakes axi run` for this task, and skip nothing else: `review`, `test`, `document`, and `lint` are the whole point of the run.
+117:So background the drive call instead of sitting in one blocking hold your harness will kill, and read its return when it finishes.
+130:Because `push` is skipped, the pipeline's fixes DO NOT arrive in your checkout: each fix round commits onto a branch inside no-mistakes' own local gate repository, and with no push nothing carries those commits back to you.
+132:You may not report the branch ready or publish it until you have closed that gap:
+136:An unrecovered fix round is an unfinished task, never housekeeping: holding or publishing without it is how the UNFIXED code reaches review.
+137:When the run ends failed, fix what it names on `fm/t-off`, commit, and start the review pass again; iterate until its outcome is passed, passed-with-skips, or passed-with-override and step 3 holds.
+139:The held ready report below is refused while the run still holds your branch, while its outcome is missing or not passing, or while your HEAD's tree differs from the run's result.
+141:## Hold
+142:Publishing is NOT authorized for this task: do NOT push, do NOT open a PR.
+146:## Publish
+147:Only when a firstmate message in your instruction inbox says publishing is authorized for this task, publish from the held `fm/t-off` as follows; acknowledge that message, and run the review pass again first only if you changed the branch since its clean pass.
+148:Start a publishing run on `fm/t-off` with the same `--intent`, skipping only the steps the clean review pass already ran: `no-mistakes axi run --intent "<intent>" --skip review,test,document,lint`.
+149:Its push, pr, and ci steps then publish the reviewed head; the pipeline owns that push, so never push from this copy.
+156:That CI-ready `done:` is accepted only when this copy's HEAD - your latest commit - is one the /no-mistakes run pushed, so commit nothing after the run; the check tests that commit, not merely that a branch moved.
+### no-mistakes --publish on
+note: no local copy of 'demo' under /var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.VYxNh82Clw/projects, so this brief states no PR quality limits; pass --project-dir <path> if that project enforces any
+scaffolded: /var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.VYxNh82Clw/data/t-on/brief.md (ship, mode=no-mistakes publish=on; replace {TASK} and {FIRSTMATE_SPEC})
+26:1. Never push to the default branch. Never merge a PR.
+49:   For a no-mistakes ask-user gate specifically, escalate all ask-user findings as one event plus one snapshot file, using that same shape even when the gate holds only a single ask-user finding: write only the ask-user findings, verbatim and unparaphrased (id, severity, file, line, description, authority), to `/var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.VYxNh82Clw/data/t-on/nm-<run>-findings.txt`, then report the gate with
+92:Publish authorization: on
+93:This task ships **no-mistakes**: the review pass below validates the branch, and publishing, when authorized, runs through the pipeline's own push, pr, and ci steps.
+97:That first `done:` is the handoff that starts the review pass; it is not a request to push or publish.
+100:Every change runs the no-mistakes pipeline as a review pass before it is called ready, whatever this task's delivery mode, and that pass pushes and publishes nothing.
+101:Pass `--skip push,pr,ci` on every review-pass `no-mistakes axi run` for this task, and skip nothing else: `review`, `test`, `document`, and `lint` are the whole point of the run.
+117:So background the drive call instead of sitting in one blocking hold your harness will kill, and read its return when it finishes.
+130:Because `push` is skipped, the pipeline's fixes DO NOT arrive in your checkout: each fix round commits onto a branch inside no-mistakes' own local gate repository, and with no push nothing carries those commits back to you.
+132:You may not report the branch ready or publish it until you have closed that gap:
+136:An unrecovered fix round is an unfinished task, never housekeeping: holding or publishing without it is how the UNFIXED code reaches review.
+137:When the run ends failed, fix what it names on `fm/t-on`, commit, and start the review pass again; iterate until its outcome is passed, passed-with-skips, or passed-with-override and step 3 holds.
+139:The held ready report below is refused while the run still holds your branch, while its outcome is missing or not passing, or while your HEAD's tree differs from the run's result.
+141:## Publish
+142:Publishing is authorized for this task: after the clean review pass, publish from `fm/t-on` as follows without waiting for a further instruction.
+143:Start a publishing run on `fm/t-on` with the same `--intent`, skipping only the steps the clean review pass already ran: `no-mistakes axi run --intent "<intent>" --skip review,test,document,lint`.
+144:Its push, pr, and ci steps then publish the reviewed head; the pipeline owns that push, so never push from this copy.
+151:That CI-ready `done:` is accepted only when this copy's HEAD - your latest commit - is one the /no-mistakes run pushed, so commit nothing after the run; the check tests that commit, not merely that a branch moved.
+### local-only --publish on
+error: fm-brief.sh --publish: publish authorization on cannot ship mode=local-only - that mode never pushes or opens a PR, and firstmate lands it through the guarded local fast-forward
+exit 1
+### direct-PR, no --publish flag
+scaffolded: /var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.aYmQ5uyynX/data/t-d/brief.md (ship, mode=direct-PR publish=off; replace {TASK} and {FIRSTMATE_SPEC})
+92:Publish authorization: off
+139:## Hold
+140:Publishing is NOT authorized for this task: do NOT push, do NOT open a PR.
