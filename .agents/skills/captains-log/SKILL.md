@@ -39,3 +39,4 @@ Otherwise answer it with `bin/fm-inbox.sh reply <id>` so the reply is threaded u
 
 `bin/fm-log.sh path` prints the root, the session-start digest prints today's note path, and `bin/fm-log.sh sync` brings the log up to date on demand.
 Give the captain the path; do not paste log contents into chat unless asked.
+To look up what the log records about a ticket, project, person, task, or topic, run `bin/fm-log.sh recall` (its header owns the flags) rather than reading notes by hand.

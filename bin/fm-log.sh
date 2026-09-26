@@ -44,6 +44,47 @@
 #                                  learning.filed on the ledger (the day note's
 #                                  Worked through link arrives at the next sync)
 #   fm-log.sh unresolved           list [[links]] with no note behind them
+#   fm-log.sh index [--rebuild]    bring the derived recall index up to date; sync
+#                                  already does this after every render. --rebuild
+#                                  recreates it from the ledger, notes, and reports.
+#   fm-log.sh recall [<terms>...] [--ticket ID] [--project NAME] [--person NAME]
+#                    [--task ID] [--since YYYY-MM-DD|<N>d] [--limit N] [--json]
+#                    [--for brief|captain|board]
+#   fm-log.sh recall --recent [--days N] [...]
+#                                  look things up in the log; see Recall below
+#
+# Recall:
+#   Entity flags are repeatable. Free terms that exactly name a configured ticket
+#   (config/log-tickets), a task id, a project (data/projects.md or any logged
+#   task), or a person (config/log-people or a task's people line) become entity
+#   filters, printed on the `resolved:` line; common question words are dropped,
+#   the remaining terms go to full-text search (stemmed, prefix matching), and a
+#   term with no text hit that closely resembles one entity name resolves to it
+#   by trigram similarity. Rows rank entity match, then decisions, learnings,
+#   outcomes and reports, then other timeline lines, each weighted by recency
+#   (60-day half-life) and text relevance. Open items for the matched tasks
+#   (all of them with --recent) always print.
+#   Output is TOON (--json gives the same pack as JSON): query, resolved,
+#   entities, timeline, decisions (with the captain's recorded words), learnings,
+#   open, and `more:` counting what the bound left out. The default bound is 40
+#   lines and about 2.5 KB; --limit N raises the line bound and scales the byte
+#   bound with it. Every row is dated and cites `<note path>#<anchor>` relative to
+#   the log root (scout reports cite data/<id>/report.md). --for captain keeps one
+#   cite per group; --for brief drops every path and private text (inbox notes,
+#   people notes) and never fails its caller: any error prints nothing and exits
+#   0. --for board is the default shape. --recent covers the last --days (7).
+#   recall reads the index without any lock and makes no network call. When the
+#   last index update failed (state/.log-index-stale) it still answers, with a
+#   `stale:` line. A missing index is reported with the command that builds it.
+#
+# Index (state/.log-index.db, SQLite FTS5 in WAL mode, disposable):
+#   Built from the fleet ledger through its own byte cursor, the log's Markdown
+#   notes (hand-written and fm:manual lines; lines owned by a ledger anchor come
+#   from the ledger instead), learning notes, the first paragraph of each
+#   data/<id>/report.md, and the entity registry, re-reading a file only when its
+#   mtime or size changes. config/log-redact applies before anything is indexed,
+#   and a change to log-tickets, log-people, or log-redact rebuilds it. A failed
+#   update during sync touches state/.log-index-stale; a good one removes it.
 #
 # Safety:
 #   - A log root already owned by another home (.fm-log-owner names a different
@@ -52,8 +93,8 @@
 #     folder) stops safely: state/.log-pending is touched, the cursor stays put,
 #     and the next sync replays from the ledger, which is the source of truth.
 #   - A snapshot failure keeps the last queue.md and marks it stale.
-#   - Only sync, start, enable, add, ticket, and learn write, always under
-#     state/.log.lock, and never delete anything.
+#   - Only sync, start, enable, add, ticket, learn, and index write, always under
+#     state/.log.lock, and never delete anything in the log.
 #
 # Environment: FM_HOME, FM_STATE_OVERRIDE, FM_DATA_OVERRIDE, FM_CONFIG_OVERRIDE
 # resolve the home as the other bin/ scripts do. FM_LOG_TODAY (YYYY-MM-DD)
@@ -75,11 +116,13 @@ CURSOR="$STATE/.log-cursor"
 PENDING="$STATE/.log-pending"
 LOCK="$STATE/.log.lock"
 PY="$SCRIPT_DIR/fm_log.py"
+INDEX_DB="$STATE/.log-index.db"
+INDEX_STALE="$STATE/.log-index-stale"
 
 die() { printf 'fm-log: %s\n' "$*" >&2; exit "${2:-1}"; }
 
 usage() {
-  sed -n '/^# Usage:/,/^# Safety:/p' "$0" | sed '$d; s/^# \{0,1\}//' >&2
+  sed -n '/^# Usage:/,/^# Recall:/p' "$0" | sed '$d; s/^# \{0,1\}//' >&2
   exit 2
 }
 
@@ -162,6 +205,29 @@ static_board() {  # <root>
     "$SCRIPT_DIR/fm-bearings-board.sh" build --static --out "$1/board.html" >/dev/null 2>&1 || true
 }
 
+# Stage one bearings snapshot (or the test fixture) in a temporary file and print its path.
+stage_snapshot() {
+  local snap
+  snap=$(mktemp "${TMPDIR:-/tmp}/fm-log-snapshot.XXXXXX") || return 1
+  if [ -n "${FM_LOG_SNAPSHOT_FILE:-}" ]; then
+    cp "$FM_LOG_SNAPSHOT_FILE" "$snap" 2>/dev/null || : > "$snap"
+  elif ! FM_HOME=$FM_HOME FM_STATE_OVERRIDE=$STATE FM_DATA_OVERRIDE=$DATA FM_CONFIG_OVERRIDE=$CONFIG \
+      "$SCRIPT_DIR/fm-bearings-snapshot.sh" --json --all-decisions --fields queue > "$snap" 2>/dev/null; then
+    : > "$snap"
+  fi
+  printf '%s\n' "$snap"
+}
+
+# Update the recall index under the held log lock; a failure leaves the stale marker.
+update_index() {  # <root> <snapshot> <rebuild 0|1>
+  if python3 "$PY" index "$1" "$CONFIG" "$DATA" "$LEDGER" "$INDEX_DB" "$2" "$3" 2>/dev/null; then
+    rm -f -- "$INDEX_STALE"
+    return 0
+  fi
+  [ -e "$INDEX_STALE" ] || date '+%Y-%m-%d %H:%M' > "$INDEX_STALE" 2>/dev/null || true
+  return 1
+}
+
 do_sync() {  # <quiet 0|1> <wait-seconds>
   local quiet=$1 wait=$2 root snap rc generated
   root=$(log_root) || { [ "$quiet" = 1 ] && return 0; die "the captain's log is off for this home; run fm-log.sh enable" 3; }
@@ -180,13 +246,7 @@ do_sync() {  # <quiet 0|1> <wait-seconds>
     [ "$quiet" = 1 ] && return 0
     die "another log sync is running; try again shortly"
   fi
-  snap=$(mktemp "${TMPDIR:-/tmp}/fm-log-snapshot.XXXXXX") || { fm_lock_release "$LOCK"; die "cannot stage the snapshot"; }
-  if [ -n "${FM_LOG_SNAPSHOT_FILE:-}" ]; then
-    cp "$FM_LOG_SNAPSHOT_FILE" "$snap" 2>/dev/null || : > "$snap"
-  elif ! FM_HOME=$FM_HOME FM_STATE_OVERRIDE=$STATE FM_DATA_OVERRIDE=$DATA FM_CONFIG_OVERRIDE=$CONFIG \
-      "$SCRIPT_DIR/fm-bearings-snapshot.sh" --json --all-decisions --fields queue > "$snap" 2>/dev/null; then
-    : > "$snap"
-  fi
+  snap=$(stage_snapshot) || { fm_lock_release "$LOCK"; die "cannot stage the snapshot"; }
   generated=$(date '+%Y-%m-%d %H:%M')
   static_board "$root"
   if [ "$quiet" = 1 ]; then
@@ -196,6 +256,7 @@ do_sync() {  # <quiet 0|1> <wait-seconds>
     python3 "$PY" sync "$root" "$CONFIG" "$LEDGER" "$CURSOR" "$snap" "$(board_target "$root")" "$(today)" "$generated" 2>/dev/null
     rc=$?
   fi
+  [ "$rc" -ne 0 ] || update_index "$root" "$snap" 0
   rm -f -- "$snap"
   fm_lock_release "$LOCK"
   if [ "$rc" -ne 0 ]; then
@@ -307,6 +368,25 @@ case "$cmd" in
     [ "$#" -eq 0 ] || usage
     root=$(log_root) || die "the captain's log is off for this home" 3
     python3 "$PY" unresolved "$root"
+    ;;
+  index)
+    rebuild=0
+    case "${1:-}" in --rebuild) rebuild=1; shift ;; esac
+    [ "$#" -eq 0 ] || usage
+    root=$(log_root) || exit 3
+    mkdir -p "$STATE" || die "cannot create this home's state directory"
+    load_lock_lib
+    fm_lock_acquire_wait_bounded "$LOCK" 10 || die "another log sync is running; try again shortly"
+    snap=$(stage_snapshot) || { fm_lock_release "$LOCK"; die "cannot stage the snapshot"; }
+    update_index "$root" "$snap" "$rebuild"
+    rc=$?
+    rm -f -- "$snap"
+    fm_lock_release "$LOCK"
+    [ "$rc" -eq 0 ] || die "updating the recall index failed; state/.log-index-stale marks it"
+    ;;
+  recall)
+    root=$(log_root) || exit 3
+    exec python3 "$PY" recall "$root" "$CONFIG" "$INDEX_DB" "$INDEX_STALE" "$(today)" "$@"
     ;;
   -h|--help|help) usage ;;
   *) usage ;;

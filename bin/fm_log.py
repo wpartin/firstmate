@@ -4,7 +4,8 @@
 bin/fm-log.sh owns configuration, the lock, and the command surface;
 docs/captains-log.md owns the reader-facing layout. This module owns only how
 fleet activity ledger records (docs/fleet-ledger.md) and one bearings snapshot
-become Markdown files under the log root.
+become Markdown files under the log root, and how the derived recall index
+(state/.log-index.db) is built from those same records and read back by recall.
 
 Rules it keeps:
   - Every entry carries a hidden `%% fm:<id> %%` anchor, an Obsidian comment,
@@ -25,6 +26,7 @@ import json
 import os
 import re
 import sys
+import time
 
 SECTIONS = ("Carried over", "Worked through", "Asked and answered", "Open at close")
 BOARD_LINE = re.compile(r"^\[Captain's board\]\(")
@@ -651,14 +653,836 @@ def cmd_unresolved(args):
         print(link)
 
 
+# ---- recall index: derived and disposable, `index --rebuild` recreates it ----
+
+INDEX_SCHEMA = "1"
+GROUP_WEIGHT = {"decision": 5.0, "learning": 4.0, "outcome": 3.0, "report": 3.0, "timeline": 1.0}
+HALF_LIFE_DAYS = 60.0
+DEFAULT_LINES = 40
+DEFAULT_BYTES = 2500
+ENTITIES_SHOWN = 6
+OPEN_SHOWN = 8
+STOPWORDS = frozenset(
+    "a about an and any at by did do does for from how in is it last me my of on or our show "
+    "tell that the this time to us was we what when which who why with".split())
+DAY_NOTE = re.compile(r"^(\d{4})/(\d{2})/(\d{2})(?:\.md|/log\.md|/(\d{4})-(\d{2})-(\d{2})\.md)$")
+LINE_DATE = re.compile(r"^(\d{4}-\d{2}-\d{2})(?: (\d{2}):(\d{2}))?\b")
+LINE_TIME = re.compile(r"^(\d{2}):(\d{2})\b")
+FM_ANCHOR = re.compile(r"%%\s*fm:([^%]*?)\s*%%")
+ANY_COMMENT = re.compile(r"%%.*?%%")
+NOTE_FOLDERS = {"tickets": "ticket", "projects": "project", "people": "person"}
+
+
+def index_connect(db):
+    import sqlite3
+    conn = sqlite3.connect(db, timeout=5)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    return conn
+
+
+def index_schema(conn):
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v TEXT);
+        CREATE TABLE IF NOT EXISTS files(key TEXT PRIMARY KEY, mtime REAL, size INTEGER);
+        CREATE TABLE IF NOT EXISTS tasks(task TEXT PRIMARY KEY, title TEXT, project TEXT, people TEXT);
+        CREATE TABLE IF NOT EXISTS rows(id INTEGER PRIMARY KEY, uid TEXT UNIQUE, kind TEXT, ts INTEGER,
+            task TEXT, what TEXT, answer TEXT, state TEXT, cite TEXT, src TEXT, private INTEGER);
+        CREATE INDEX IF NOT EXISTS rows_task ON rows(task, ts);
+        CREATE INDEX IF NOT EXISTS rows_ts ON rows(ts);
+        CREATE INDEX IF NOT EXISTS rows_src ON rows(src);
+        CREATE TABLE IF NOT EXISTS links(row INTEGER, kind TEXT, name TEXT COLLATE NOCASE);
+        CREATE INDEX IF NOT EXISTS links_name ON links(kind, name);
+        CREATE INDEX IF NOT EXISTS links_row ON links(row);
+        CREATE TABLE IF NOT EXISTS ents(kind TEXT, name TEXT COLLATE NOCASE, task TEXT, note TEXT);
+        CREATE INDEX IF NOT EXISTS ents_name ON ents(kind, name);
+        CREATE INDEX IF NOT EXISTS ents_task ON ents(task);
+        CREATE TABLE IF NOT EXISTS open(task TEXT, state TEXT, since TEXT);
+        CREATE VIRTUAL TABLE IF NOT EXISTS rows_fts USING fts5(body, tokenize='porter unicode61', prefix='2 3');
+        CREATE VIRTUAL TABLE IF NOT EXISTS tasks_fts USING fts5(task, title, tokenize='porter unicode61', prefix='2 3');
+    """)
+
+
+def index_drop(conn):
+    for name in ("meta", "files", "tasks", "rows", "links", "ents", "open", "rows_fts", "tasks_fts"):
+        conn.execute("DROP TABLE IF EXISTS %s" % name)
+
+
+def config_digest(config_dir):
+    h = hashlib.sha1()
+    for name in ("log-tickets", "log-people", "log-redact"):
+        h.update(((read(os.path.join(config_dir, name)) or "") + "\0").encode())
+    return h.hexdigest()
+
+
+def day_of(ts):
+    return datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d")
+
+
+def epoch_of(day, hour=0, minute=0):
+    try:
+        return int(time.mktime(datetime.datetime.strptime(day, "%Y-%m-%d").replace(
+            hour=hour, minute=minute).timetuple()))
+    except ValueError:
+        return 0
+
+
+class Indexer:
+    def __init__(self, conn, root, config_dir, data_dir):
+        self.conn = conn
+        self.root = root
+        self.data = data_dir
+        self.cfg = Config(config_dir)
+        self.days = Log(root, config_dir, None, "", "")
+
+    def put_row(self, uid, kind, ts, task, what, cite, src, answer="", state="", private=0, links=None):
+        if links is None:
+            links = [("ticket", t) for t in self.cfg.ticket_ids(what, answer)]
+        cur = self.conn.execute(
+            "INSERT INTO rows(uid,kind,ts,task,what,answer,state,cite,src,private) VALUES(?,?,?,?,?,?,?,?,?,?)",
+            (uid, kind, ts, task, what, answer, state, cite, src, private))
+        rid = cur.lastrowid
+        self.conn.execute("INSERT INTO rows_fts(rowid, body) VALUES(?,?)", (rid, "%s %s" % (what, answer)))
+        for kind_name in links:
+            self.conn.execute("INSERT INTO links(row,kind,name) VALUES(?,?,?)", (rid,) + kind_name)
+        return rid
+
+    def refresh_fts(self, rid):
+        what, answer = self.conn.execute("SELECT what, answer FROM rows WHERE id=?", (rid,)).fetchone()
+        self.conn.execute("DELETE FROM rows_fts WHERE rowid=?", (rid,))
+        self.conn.execute("INSERT INTO rows_fts(rowid, body) VALUES(?,?)", (rid, "%s %s" % (what, answer)))
+
+    def drop_rows(self, where, args):
+        ids = [r[0] for r in self.conn.execute("SELECT id FROM rows WHERE " + where, args)]
+        for chunk in range(0, len(ids), 500):
+            part = ids[chunk:chunk + 500]
+            marks = ",".join("?" * len(part))
+            self.conn.execute("DELETE FROM rows_fts WHERE rowid IN (%s)" % marks, part)
+            self.conn.execute("DELETE FROM links WHERE row IN (%s)" % marks, part)
+            self.conn.execute("DELETE FROM rows WHERE id IN (%s)" % marks, part)
+
+    def day_cite(self, day, anchor):
+        rel = os.path.relpath(self.days.day_path(day), self.root).replace(os.sep, "/")
+        return "%s#fm:%s" % (rel, anchor)
+
+    def task_seen(self, task, project=None):
+        if not task:
+            return
+        self.conn.execute("INSERT OR IGNORE INTO tasks(task,title,project,people) VALUES(?,?,?,?)",
+                          (task, "", "", ""))
+        if project:
+            self.conn.execute("UPDATE tasks SET project=? WHERE task=?", (project, task))
+
+    # ---- ledger ---------------------------------------------------------
+    def ingest_ledger(self, ledger):
+        offset = int(self.meta("ledger_offset") or 0)
+        size = os.path.getsize(ledger) if os.path.isfile(ledger) else 0
+        if size < offset:
+            self.drop_rows("src='ledger'", ())
+            offset = 0
+        if size > offset:
+            with open(ledger, "rb") as fh:
+                fh.seek(offset)
+                data = fh.read()
+            complete = data[: data.rfind(b"\n") + 1]
+            for raw in complete.split(b"\n"):
+                if not raw.strip():
+                    continue
+                try:
+                    rec = json.loads(raw.decode("utf-8"))
+                except (ValueError, UnicodeDecodeError):
+                    continue
+                if isinstance(rec, dict) and isinstance(rec.get("ts"), int):
+                    self.ledger_record(rec, hashlib.sha1(raw).hexdigest()[:12])
+            offset += len(complete)
+        self.set_meta("ledger_offset", str(offset))
+
+    def ledger_record(self, rec, eid):
+        event = rec.get("event")
+        ts = rec["ts"]
+        task = str(rec.get("task") or "")
+        day = day_of(ts)
+        cite = self.day_cite(day, eid)
+        c = lambda text, cap=TEXT_CAP: clean(text, self.cfg, cap)
+        if self.conn.execute("SELECT 1 FROM rows WHERE uid=?", (eid,)).fetchone():
+            return
+        if event == "task.dispatched":
+            project = c(rec.get("project"), 80)
+            self.task_seen(task, project)
+            kind = c(rec.get("kind"), 20)
+            what = "Started" + ((" " + kind) if kind and kind != "ship" else "") + ((" in " + project) if project else "")
+            self.put_row(eid, "timeline", ts, task, what, cite, "ledger")
+        elif event == "task.status" and rec.get("state") in STATUS_STATES:
+            self.task_seen(task)
+            label = {"done": "Finished", "failed": "Failed", "blocked": "Blocked",
+                     "needs-decision": "Needs a decision"}[rec["state"]]
+            detail = c(rec.get("text"))
+            kind = "outcome" if rec["state"] in ("done", "failed") else "timeline"
+            self.put_row(eid, kind, ts, task, label + ((" - " + detail) if detail else ""), cite, "ledger")
+        elif event == "task.pr_ready":
+            self.task_seen(task)
+            self.put_row(eid, "outcome", ts, task, "Ready for review " + c(rec.get("pr"), 300), cite, "ledger")
+        elif event == "task.merged":
+            self.task_seen(task)
+            url = c(rec.get("pr"), 300) if rec.get("via") == "pr" else ""
+            self.put_row(eid, "outcome", ts, task, "Landed " + (url or "on the local branch"), cite, "ledger")
+        elif event == "captain.held":
+            self.task_seen(task)
+            until = c(rec.get("until"), 10)
+            self.put_row(eid, "decision", ts, task, c(rec.get("reason"), 1000), cite, "ledger",
+                         state=("deferred to " + until) if until else "held")
+        elif event == "captain.answered":
+            self.task_seen(task)
+            words = c(rec.get("words"), 1000)
+            mode = c(rec.get("mode"), 20) or "answered"
+            row = self.conn.execute(
+                "SELECT id FROM rows WHERE kind='decision' AND task=? AND src='ledger' AND answer='' "
+                "ORDER BY ts DESC, id DESC LIMIT 1", (task,)).fetchone()
+            if row:
+                self.conn.execute("UPDATE rows SET answer=?, state=?, ts=? WHERE id=?", (words, mode, ts, row[0]))
+                self.refresh_fts(row[0])
+            else:
+                self.put_row(eid, "decision", ts, task, "", cite, "ledger", answer=words, state=mode)
+        elif event == "inbox.noted" and rec.get("log_day"):
+            note = c(rec.get("note"), 80)
+            body = [l for l in (rec.get("text") or "").splitlines()
+                    if not re.match(r"^(log_day|task|thread|question|log_note)=", l)]
+            log_day = c(rec.get("log_day"), 10)
+            day_cite = self.day_cite(log_day, "note:" + note) if re.fullmatch(r"\d{4}-\d{2}-\d{2}", log_day) else cite
+            self.put_row(eid, "timeline", ts, task, "Noted: " + c(" ".join(body), 1000), day_cite, "ledger", private=1)
+        elif event == "inbox.replied":
+            self.put_row(eid, "timeline", ts, task, "Replied: " + c(rec.get("text"), 1000), cite, "ledger", private=1)
+        elif event == "learning.filed":
+            slug = safe_name(rec.get("slug") or "")
+            uid = "learning:" + slug
+            if self.conn.execute("SELECT 1 FROM rows WHERE uid=?", (uid,)).fetchone():
+                self.conn.execute("UPDATE rows SET ts=?, src='ledger' WHERE uid=?", (ts, uid))
+            else:
+                self.put_row(uid, "learning", ts, "", c(rec.get("title"), 120),
+                             "learnings/%s.md#top" % slug, "ledger")
+
+    # ---- notes and reports ------------------------------------------------
+    def sources(self):
+        found = {}
+        if os.path.isdir(self.root):
+            for top, dirs, files in os.walk(self.root):
+                dirs[:] = [d for d in dirs if not d.startswith(".") and d != "attachments"]
+                for name in files:
+                    if not name.endswith(".md"):
+                        continue
+                    path = os.path.join(top, name)
+                    rel = os.path.relpath(path, self.root).replace(os.sep, "/")
+                    if rel in ("queue.md", "README.md"):
+                        continue
+                    found["log:" + rel] = path
+        if os.path.isdir(self.data):
+            for name in sorted(os.listdir(self.data)):
+                path = os.path.join(self.data, name, "report.md")
+                if not name.startswith(".") and name != "log" and os.path.isfile(path):
+                    found["report:" + name] = path
+        return found
+
+    def ingest_files(self):
+        seen = self.sources()
+        known = {k: (m, s) for k, m, s in self.conn.execute("SELECT key, mtime, size FROM files")}
+        for key in sorted(set(known) - set(seen)):
+            self.forget(key)
+            self.conn.execute("DELETE FROM files WHERE key=?", (key,))
+        for key in sorted(seen):
+            try:
+                st = os.stat(seen[key])
+            except OSError:
+                continue
+            if known.get(key) == (st.st_mtime, st.st_size):
+                continue
+            self.forget(key)
+            text = read(seen[key]) or ""
+            if key.startswith("report:"):
+                self.report(key[len("report:"):], text, st.st_mtime)
+            else:
+                self.note(key[len("log:"):], text, st.st_mtime)
+            self.conn.execute("INSERT OR REPLACE INTO files(key,mtime,size) VALUES(?,?,?)",
+                              (key, st.st_mtime, st.st_size))
+
+    def forget(self, key):
+        if key.startswith("log:learnings/"):
+            slug = os.path.splitext(key[len("log:learnings/"):])[0]
+            row = self.conn.execute("SELECT id, src FROM rows WHERE uid=?", ("learning:" + slug,)).fetchone()
+            if row and row[1] == "ledger":
+                self.conn.execute("UPDATE rows SET answer='' WHERE id=?", (row[0],))
+                self.refresh_fts(row[0])
+                return
+        self.drop_rows("src=?", (key,))
+
+    def report(self, task, text, mtime):
+        title, para = "", []
+        for line in text.splitlines():
+            if not title and line.startswith("# "):
+                title = line[2:].strip()
+                continue
+            if line.startswith("#"):
+                if para:
+                    break
+                continue
+            if line.strip():
+                para.append(line.strip())
+            elif para:
+                break
+        what = clean("Report: " + title + ((" - " + " ".join(para)) if para else ""), self.cfg, 300)
+        self.put_row("report:" + task, "report", int(mtime), task, what,
+                     "data/%s/report.md#top" % task, "report:" + task)
+
+    def learning_note(self, rel, text, mtime):
+        slug = os.path.splitext(rel[len("learnings/"):])[0]
+        lines = text.splitlines()
+        title = next((l[2:].strip() for l in lines if l.startswith("# ")), slug)
+        body = " ".join(l.strip() for l in lines if l.strip() and not l.startswith("#"))
+        title, body = clean(title, self.cfg, 120), clean(body, self.cfg, 600)
+        row = self.conn.execute("SELECT id FROM rows WHERE uid=?", ("learning:" + slug,)).fetchone()
+        if row:
+            self.conn.execute("UPDATE rows SET what=?, answer=? WHERE id=?", (title, body, row[0]))
+            self.refresh_fts(row[0])
+        else:
+            self.put_row("learning:" + slug, "learning", int(mtime), "", title,
+                         "learnings/%s.md#top" % slug, "log:" + rel, answer=body)
+
+    def note(self, rel, text, mtime):
+        if rel.startswith("learnings/"):
+            self.learning_note(rel, text, mtime)
+            return
+        folder, _, fname = rel.partition("/")
+        links = []
+        if folder in NOTE_FOLDERS and fname and "/" not in fname:
+            links.append((NOTE_FOLDERS[folder], os.path.splitext(fname)[0]))
+        m = DAY_NOTE.match(rel)
+        note_day = "%s-%s-%s" % m.group(1, 2, 3) if m else day_of(int(mtime))
+        section = ""
+        for n, line in enumerate(text.splitlines(), 1):
+            if line.startswith("#"):
+                section = line.lstrip("#").strip()
+                continue
+            if not line.strip() or BOARD_LINE.match(line) or line.startswith("[Open in the tracker]"):
+                continue
+            anchors = FM_ANCHOR.findall(line)
+            if m and (section == "Carried over" or (section == "Open at close" and not anchors)):
+                continue
+            if any(not a.startswith("manual:") for a in anchors):
+                continue
+            body = ANY_COMMENT.sub("", line).strip()
+            body = re.sub(r"^[-*+]\s+", "", body)
+            if not body or re.fullmatch(r"\((nothing|none)[^)]*\)", body):
+                continue
+            day, hour, minute = note_day, 0, 0
+            dm = LINE_DATE.match(body)
+            tm = LINE_TIME.match(body)
+            if dm:
+                day = dm.group(1)
+                hour, minute = int(dm.group(2) or 0), int(dm.group(3) or 0)
+                body = body[dm.end():].strip()
+            elif tm:
+                hour, minute = int(tm.group(1)), int(tm.group(2))
+                body = body[tm.end():].strip()
+            body = clean(body, self.cfg, 300)
+            if not body:
+                continue
+            anchor = ("fm:" + anchors[0]) if anchors else "L%d" % n
+            row_links = links + [("ticket", t) for t in self.cfg.ticket_ids(body)]
+            self.put_row("md:%s#L%d" % (rel, n), "timeline", epoch_of(day, hour, minute), "", body,
+                         "%s#%s" % (rel, anchor), "log:" + rel, private=1 if folder == "people" else 0,
+                         links=row_links)
+
+    # ---- entities -------------------------------------------------------
+    def apply_snapshot(self, snapshot):
+        if not isinstance(snapshot, dict):
+            return
+        for r in snapshot.get("queue") or []:
+            task = str(r.get("id") or "")
+            if not task:
+                continue
+            self.task_seen(task, clean(r.get("repo"), self.cfg, 80))
+            people = [clean(p, self.cfg, 80) for p in r.get("people") or [] if self.cfg.person_ok(p)]
+            self.conn.execute("UPDATE tasks SET title=?, people=? WHERE task=?",
+                              (clean(r.get("title"), self.cfg, 120), "\n".join(people), task))
+        for r in snapshot.get("in_flight") or []:
+            task = str(r.get("id") or "")
+            if task:
+                self.task_seen(task, clean(r.get("repo"), self.cfg, 80))
+                self.conn.execute("UPDATE tasks SET title=? WHERE task=? AND title=''",
+                                  (clean(r.get("name"), self.cfg, 120), task))
+        if snapshot.get("queue") is None:
+            return
+        self.conn.execute("DELETE FROM open")
+        opened = []
+        for r in snapshot.get("queue") or []:
+            if r.get("state") == "done":
+                continue
+            if r.get("hold_kind") == "captain" and r.get("hold_bucket") == "live":
+                opened.append((r.get("id"), "waiting on the captain"))
+            elif r.get("blocked_by") and r.get("hold_bucket") in (None, "blocked"):
+                opened.append((r.get("id"), "blocked by " + ", ".join(r["blocked_by"])))
+        for r in snapshot.get("in_flight") or []:
+            opened.append((r.get("id"), "in flight"))
+        for task, state in opened:
+            if not task:
+                continue
+            last = self.conn.execute("SELECT max(ts) FROM rows WHERE task=?", (task,)).fetchone()[0]
+            self.conn.execute("INSERT INTO open(task,state,since) VALUES(?,?,?)",
+                              (task, clean(state, self.cfg, 120), day_of(last) if last else ""))
+
+    def registry_names(self):
+        projects = []
+        for line in (read(os.path.join(self.data, "projects.md")) or "").splitlines():
+            m = re.match(r"^\s*-\s+(\S+)", line)
+            if m:
+                projects.append(m.group(1))
+        return projects
+
+    def rebuild_entities(self):
+        conn = self.conn
+        conn.execute("DELETE FROM ents")
+        conn.execute("DELETE FROM tasks_fts")
+        ents = set()
+        for task, title, project, people in conn.execute("SELECT task, title, project, people FROM tasks").fetchall():
+            ents.add(("task", task, task, ""))
+            if project:
+                ents.add(("project", project, task, "projects/%s.md" % safe_name(project)))
+            for person in (people or "").split("\n"):
+                if person:
+                    ents.add(("person", person, task, "people/%s.md" % safe_name(person)))
+            for tid in self.cfg.ticket_ids(task, title):
+                ents.add(("ticket", tid, task, "tickets/%s.md" % safe_name(tid)))
+            conn.execute("INSERT INTO tasks_fts(task, title) VALUES(?,?)", (task, title or ""))
+        for name in self.registry_names():
+            ents.add(("project", name, "", "projects/%s.md" % safe_name(name)))
+        for name in sorted(self.cfg.people or ()):
+            ents.add(("person", name, "", "people/%s.md" % safe_name(name)))
+        for kind, name in conn.execute("SELECT DISTINCT kind, name FROM links").fetchall():
+            folder = {v: k for k, v in NOTE_FOLDERS.items()}[kind]
+            ents.add((kind, name, "", "%s/%s.md" % (folder, safe_name(name))))
+        conn.executemany("INSERT INTO ents(kind,name,task,note) VALUES(?,?,?,?)", sorted(ents))
+
+    def meta(self, key):
+        row = self.conn.execute("SELECT v FROM meta WHERE k=?", (key,)).fetchone()
+        return row[0] if row else None
+
+    def set_meta(self, key, value):
+        self.conn.execute("INSERT OR REPLACE INTO meta(k,v) VALUES(?,?)", (key, value))
+
+
+def cmd_index(args):
+    root, config_dir, data_dir, ledger, db, snapshot_path, rebuild = args
+    snapshot = None
+    if snapshot_path and os.path.isfile(snapshot_path):
+        try:
+            with open(snapshot_path, encoding="utf-8") as fh:
+                snapshot = json.load(fh)
+        except (OSError, ValueError):
+            snapshot = None
+    try:
+        conn = index_connect(db)
+        conn.execute("SELECT count(*) FROM sqlite_master").fetchone()
+    except Exception:
+        for suffix in ("", "-wal", "-shm"):
+            try:
+                os.remove(db + suffix)
+            except OSError:
+                pass
+        conn = index_connect(db)
+    digest = config_digest(config_dir)
+    with conn:
+        index_schema(conn)
+        row = conn.execute("SELECT v FROM meta WHERE k='schema'").fetchone()
+        row_cfg = conn.execute("SELECT v FROM meta WHERE k='config'").fetchone()
+        if rebuild == "1" or not row or row[0] != INDEX_SCHEMA or not row_cfg or row_cfg[0] != digest:
+            index_drop(conn)
+            index_schema(conn)
+        idx = Indexer(conn, root, config_dir, data_dir)
+        idx.set_meta("schema", INDEX_SCHEMA)
+        idx.set_meta("config", digest)
+        idx.ingest_ledger(ledger)
+        idx.ingest_files()
+        idx.apply_snapshot(snapshot)
+        idx.rebuild_entities()
+    conn.close()
+    return 0
+
+
+# ---- recall ---------------------------------------------------------------
+
+def parse_since(value, today):
+    m = re.fullmatch(r"(\d+)d", value or "")
+    if m:
+        return epoch_of(today) - (int(m.group(1)) - 1) * 86400
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value or "") and epoch_of(value):
+        return epoch_of(value)
+    raise ValueError("--since takes YYYY-MM-DD or <N>d")
+
+
+def trigrams(word):
+    w = "  %s " % word.lower()
+    return {w[i:i + 3] for i in range(len(w) - 2)}
+
+
+def fts_query(terms):
+    parts = []
+    for term in terms:
+        tok = re.sub(r"[^\w]+", " ", term).strip()
+        if tok:
+            phrase = tok.replace('"', '""')
+            parts.append('("%s" OR "%s"*)' % (phrase, phrase) if " " not in tok else '"%s"' % phrase)
+    return " AND ".join(parts)
+
+
+class Recall:
+    def __init__(self, conn, cfg, today):
+        self.conn = conn
+        self.cfg = cfg
+        self.today = today
+        self.now = epoch_of(today) + 86400
+
+    def names(self):
+        out = {}
+        for kind, name in self.conn.execute("SELECT DISTINCT kind, name FROM ents"):
+            out.setdefault(name.lower(), []).append((kind, name))
+        return out
+
+    def resolve(self, words):
+        """Split free words into entity filters, leftover search terms, and ambiguity notes."""
+        names = self.names()
+        order = {"ticket": 0, "task": 1, "project": 2, "person": 3}
+        tokens = [w.strip(".,;:!?()'\"") for w in words]
+        tokens = [t for t in tokens if t]
+        entities, terms, notes = [], [], []
+        i = 0
+        while i < len(tokens):
+            hit = None
+            for j in range(min(len(tokens), i + 4), i, -1):
+                key = " ".join(tokens[i:j]).lower()
+                if key in names:
+                    hit = (j, sorted(names[key], key=lambda kn: order[kn[0]]))
+                    break
+            if hit:
+                j, cands = hit
+                kinds = {k for k, _ in cands}
+                if len(kinds) > 1:
+                    notes.append("%s also names %s" % (cands[0][1], ", ".join(
+                        "%s %s" % kn for kn in cands[1:])))
+                entities.append(cands[0] + ("exact",))
+                i = j
+                continue
+            tok = tokens[i]
+            tids = self.cfg.ticket_ids(tok)
+            if tids and any(rx.fullmatch(tok) for rx, _ in self.cfg.tickets):
+                entities.append(("ticket", tids[0], "pattern"))
+            elif tok.lower() not in STOPWORDS:
+                terms.append(tok)
+            i += 1
+        return entities, terms, notes
+
+    def fuzzy(self, terms):
+        """Misspelled names: terms with no text hit that resemble one entity name by trigrams."""
+        found, left = [], []
+        pool = [(kind, name) for kind, name in self.conn.execute(
+            "SELECT DISTINCT kind, name FROM ents WHERE kind IN ('person','project','ticket')")]
+        for term in terms:
+            q = fts_query([term])
+            hits = self.conn.execute("SELECT count(*) FROM (SELECT 1 FROM rows_fts WHERE rows_fts MATCH ? LIMIT 1)",
+                                     (q,)).fetchone()[0] if q else 0
+            if hits or len(term) < 4:
+                left.append(term)
+                continue
+            tg = trigrams(term)
+            best = (0.0, None)
+            for kind, name in pool:
+                for part in [name] + name.split():
+                    pg = trigrams(part)
+                    score = 2.0 * len(tg & pg) / (len(tg) + len(pg))
+                    if score > best[0]:
+                        best = (score, (kind, name))
+            if best[0] >= 0.5:
+                found.append(best[1] + ("near '%s'" % term,))
+            else:
+                left.append(term)
+        return found, left
+
+    def entity_rows(self, kind, name):
+        rows = {}
+        for (rid,) in self.conn.execute(
+                "SELECT id FROM rows WHERE task IN (SELECT task FROM ents WHERE kind=? AND name=? AND task!='') "
+                "ORDER BY ts DESC LIMIT 1500", (kind, name)):
+            rows[rid] = 1.0
+        for (rid,) in self.conn.execute("SELECT row FROM links WHERE kind=? AND name=? LIMIT 500", (kind, name)):
+            rows[rid] = 1.0
+        if kind != "task":
+            q = fts_query([name]) if " " not in name else '"%s"' % re.sub(r"[^\w]+", " ", name).strip()
+            if q.strip('"'):
+                for (rid,) in self.conn.execute(
+                        "SELECT rowid FROM rows_fts WHERE rows_fts MATCH ? ORDER BY rank LIMIT 300", (q,)):
+                    rows[rid] = 1.0
+        return rows
+
+    def term_rows(self, terms):
+        rows = {}
+        q = fts_query(terms)
+        if not q:
+            return rows
+        for rid, bm in self.conn.execute(
+                "SELECT rowid, bm25(rows_fts) FROM rows_fts WHERE rows_fts MATCH ? ORDER BY rank LIMIT 500", (q,)):
+            rows[rid] = 1.0 + min(3.0, max(0.0, -bm))
+        for (rid,) in self.conn.execute(
+                "SELECT r.id FROM rows r JOIN tasks_fts t ON t.task = r.task WHERE tasks_fts MATCH ? "
+                "ORDER BY r.ts DESC LIMIT 500", (q,)):
+            rows.setdefault(rid, 1.5)
+        return rows
+
+    def fetch(self, ids, since, public_only):
+        out = []
+        ids = list(ids)
+        for chunk in range(0, len(ids), 500):
+            part = ids[chunk:chunk + 500]
+            sql = ("SELECT id, uid, kind, ts, task, what, answer, state, cite, private FROM rows WHERE id IN (%s)"
+                   % ",".join("?" * len(part)))
+            for r in self.conn.execute(sql, part):
+                if since is not None and r[3] < since:
+                    continue
+                if public_only and r[9]:
+                    continue
+                out.append(dict(zip(("id", "uid", "kind", "ts", "task", "what", "answer", "state", "cite", "private"), r)))
+        return out
+
+    def score(self, row, relevance, matched):
+        age = max(0.0, (self.now - row["ts"]) / 86400.0)
+        return GROUP_WEIGHT[row["kind"]] * (0.5 ** (age / HALF_LIFE_DAYS)) * relevance * (2.0 if matched else 1.0)
+
+    def entity_summary(self, kind, name):
+        row = self.conn.execute(
+            "SELECT min(ts), max(ts), count(*) FROM rows WHERE task IN "
+            "(SELECT task FROM ents WHERE kind=? AND name=? AND task!='') OR id IN "
+            "(SELECT row FROM links WHERE kind=? AND name=?)", (kind, name, kind, name)).fetchone()
+        note = self.conn.execute("SELECT note FROM ents WHERE kind=? AND name=? LIMIT 1", (kind, name)).fetchone()
+        canon = self.conn.execute("SELECT name FROM ents WHERE kind=? AND name=? LIMIT 1", (kind, name)).fetchone()
+        return {"kind": kind, "name": canon[0] if canon else name,
+                "first": day_of(row[0]) if row[0] else "", "last": day_of(row[1]) if row[1] else "",
+                "touches": row[2], "note": note[0] if note else ""}
+
+
+def toon_value(value):
+    text = str(value)
+    if text == "" or "," in text or '"' in text or "\\" in text or text != text.strip():
+        return '"%s"' % text.replace("\\", "\\\\").replace('"', '\\"')
+    return text
+
+
+GROUPS = (
+    ("entities", ("kind", "name", "first", "last", "touches", "note")),
+    ("timeline", ("date", "what", "task", "cite")),
+    ("decisions", ("date", "question", "answer", "state", "cite")),
+    ("learnings", ("slug", "title", "filed", "cite")),
+    ("open", ("task", "state", "since")),
+)
+PATH_FIELDS = ("cite", "note")
+
+
+def recall_pack(rc, opts):
+    public_only = opts.audience == "brief"
+    since = parse_since(opts.since, rc.today) if opts.since else None
+    entities, terms, notes = rc.resolve(opts.terms)
+    for kind, flag in (("ticket", opts.ticket), ("project", opts.project), ("person", opts.person), ("task", opts.task)):
+        for name in flag:
+            entities.append((kind, name.upper() if kind == "ticket" else name, "flag"))
+    if terms:
+        extra, terms = rc.fuzzy(terms)
+        entities += extra
+    candidates, matched = {}, set()
+    if opts.recent:
+        since = rc.now - opts.days * 86400 if since is None else since
+        for (rid,) in rc.conn.execute("SELECT id FROM rows WHERE ts >= ? ORDER BY ts DESC LIMIT 1500", (since,)):
+            candidates[rid] = 1.0
+    for kind, name, _ in entities:
+        for rid, rel in rc.entity_rows(kind, name).items():
+            candidates[rid] = max(candidates.get(rid, 0), rel)
+            matched.add(rid)
+    if terms:
+        hits = rc.term_rows(terms)
+        if entities:
+            for rid, rel in hits.items():
+                if rid in candidates:
+                    candidates[rid] *= rel
+        else:
+            candidates.update(hits)
+    rows = rc.fetch(candidates, since, public_only)
+    for r in rows:
+        r["score"] = rc.score(r, candidates[r["id"]], r["id"] in matched)
+    rows.sort(key=lambda r: (-r["score"], -r["ts"], r["id"]))
+    tasks = {r["task"] for r in rows if r["task"]} | {n for k, n, _ in entities if k == "task"}
+    open_rows = []
+    for task, state, since_day in rc.conn.execute("SELECT task, state, since FROM open ORDER BY since DESC, task"):
+        if opts.recent or task in tasks:
+            open_rows.append({"task": task, "state": state, "since": since_day})
+    ents, seen = [], set()
+    for kind, name, _ in entities:
+        if (kind, name.lower()) not in seen:
+            seen.add((kind, name.lower()))
+            ents.append(rc.entity_summary(kind, name))
+    related = {}
+    for r in rows[:50]:
+        if r["task"]:
+            for kind, name in rc.conn.execute("SELECT kind, name FROM ents WHERE task=? AND kind!='task'", (r["task"],)):
+                related.setdefault((kind, name), r["ts"])
+    for (kind, name), _ in sorted(related.items(), key=lambda kv: -kv[1]):
+        if (kind, name.lower()) not in seen and len(ents) < ENTITIES_SHOWN:
+            seen.add((kind, name.lower()))
+            ents.append(rc.entity_summary(kind, name))
+    return entities, notes, ents[:ENTITIES_SHOWN], rows, open_rows[:OPEN_SHOWN], max(0, len(open_rows) - OPEN_SHOWN)
+
+
+def group_row(r):
+    date = day_of(r["ts"])
+    if r["kind"] == "decision":
+        return "decisions", {"date": date, "question": r["what"], "answer": r["answer"], "state": r["state"], "cite": r["cite"]}
+    if r["kind"] == "learning":
+        return "learnings", {"slug": r["uid"][len("learning:"):], "title": r["what"], "filed": date, "cite": r["cite"]}
+    return "timeline", {"date": date, "what": r["what"], "task": r["task"], "cite": r["cite"]}
+
+
+def render_pack(opts, query, resolved, notes, stale, ents, rows, open_rows, open_more):
+    audience = opts.audience
+    drop = PATH_FIELDS if audience in ("brief", "captain") else ()
+    fields = {g: tuple(f for f in cols if f not in drop) for g, cols in GROUPS}
+    head = ["query: " + query]
+    if resolved:
+        head.append("resolved: " + "; ".join(
+            "%s %s%s" % (k, n, "" if via in ("exact", "flag", "pattern") else " (%s)" % via) for k, n, via in resolved))
+    for note in notes:
+        head.append("ambiguous: " + note)
+    if stale:
+        head.append("stale: index stale since " + stale)
+
+    def line(group, rec):
+        return "  " + ",".join(toon_value(rec[f]) for f in fields[group])
+
+    groups = {"entities": list(ents), "timeline": [], "decisions": [], "learnings": [], "open": list(open_rows)}
+    budget_lines = opts.limit
+    budget_bytes = DEFAULT_BYTES * opts.limit // DEFAULT_LINES
+    used_lines = len(head) + 1
+    used_bytes = sum(len(h) + 1 for h in head)
+    for g in ("entities", "open"):
+        if groups[g]:
+            used_lines += 1 + len(groups[g])
+            used_bytes += 40 + sum(len(line(g, rec)) + 1 for rec in groups[g])
+    more = open_more
+    for r in rows:
+        g, rec = group_row(r)
+        cost = len(line(g, rec)) + 1 + (40 if not groups[g] else 0)
+        extra = 1 if not groups[g] else 0
+        if used_lines + 1 + extra > budget_lines or used_bytes + cost > budget_bytes:
+            more += 1
+            continue
+        groups[g].append((r["ts"], r["id"], rec))
+        used_lines += 1 + extra
+        used_bytes += cost
+    for g in ("timeline", "decisions", "learnings"):
+        groups[g] = [rec for _, _, rec in sorted(groups[g], key=lambda t: (-t[0], -t[1]))]
+    see = {}
+    if audience == "captain":
+        for g, _ in GROUPS:
+            cites = [rec.get("cite") or rec.get("note") for rec in groups[g] if rec.get("cite") or rec.get("note")]
+            if cites:
+                see[g] = cites[0]
+    found = any(groups[g] for g in ("timeline", "decisions", "learnings", "open")) or any(
+        e["touches"] for e in groups["entities"])
+    if opts.json:
+        out = {"query": query, "resolved": [{"kind": k, "name": n, "via": v} for k, n, v in resolved],
+               "ambiguous": notes, "stale": stale or None}
+        for g, _ in GROUPS:
+            out[g] = [{f: rec[f] for f in fields[g]} for rec in groups[g]]
+        if see:
+            out["see"] = see
+        out["more"] = more
+        return found, json.dumps(out, ensure_ascii=False, indent=1)
+    body = list(head)
+    for g, _ in GROUPS:
+        if groups[g]:
+            body.append("%s[%d]{%s}:" % (g, len(groups[g]), ",".join(fields[g])))
+            body.extend(line(g, rec) for rec in groups[g])
+            if g in see:
+                body.append("%s_see: %s" % (g, see[g]))
+    if not found:
+        body.append("found: nothing in the log")
+    if more:
+        body.append("more: %d not shown (narrow with --since or raise --limit)" % more)
+    return found, "\n".join(body)
+
+
+def cmd_recall(args):
+    import argparse
+    parser = argparse.ArgumentParser(prog="fm-log.sh recall", add_help=False)
+    parser.add_argument("root")
+    parser.add_argument("config")
+    parser.add_argument("db")
+    parser.add_argument("stale")
+    parser.add_argument("today")
+    parser.add_argument("terms", nargs="*")
+    for flag in ("ticket", "project", "person", "task"):
+        parser.add_argument("--" + flag, action="append", default=[])
+    parser.add_argument("--since")
+    parser.add_argument("--limit", type=int, default=DEFAULT_LINES)
+    parser.add_argument("--days", type=int, default=7)
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("--recent", action="store_true")
+    parser.add_argument("--for", dest="audience", choices=("brief", "captain", "board"))
+    brief = "--for=brief" in args or any(a == "--for" and b == "brief" for a, b in zip(args, args[1:]))
+    try:
+        opts = parser.parse_args(args)
+    except SystemExit:
+        return 0 if brief else 2
+    try:
+        if opts.limit < 5 or opts.days < 1:
+            raise ValueError("--limit must be at least 5 and --days at least 1")
+        if not (opts.terms or opts.ticket or opts.project or opts.person or opts.task or opts.recent):
+            raise ValueError("recall needs terms, an entity flag, or --recent")
+        if not os.path.isfile(opts.db):
+            raise LookupError("the recall index is not built yet; run fm-log.sh index")
+        import sqlite3
+        conn = sqlite3.connect("file:%s?mode=ro" % opts.db, uri=True, timeout=2)
+        stale = (read(opts.stale) or "").strip() if os.path.exists(opts.stale) else ""
+        if os.path.exists(opts.stale) and not stale:
+            stale = datetime.datetime.fromtimestamp(os.path.getmtime(opts.stale)).strftime("%Y-%m-%d %H:%M")
+        rc = Recall(conn, Config(opts.config), opts.today)
+        query = " ".join(opts.terms) or ("recent %dd" % opts.days if opts.recent else "")
+        for kind in ("ticket", "project", "person", "task"):
+            for name in getattr(opts, kind):
+                query = (query + " " if query else "") + "--%s %s" % (kind, name)
+        if opts.since:
+            query += " --since " + opts.since
+        resolved, notes, ents, rows, open_rows, open_more = recall_pack(rc, opts)
+        found, text = render_pack(opts, query, resolved, notes, stale, ents, rows, open_rows, open_more)
+        conn.close()
+    except ValueError as err:
+        if brief:
+            return 0
+        sys.stderr.write("fm-log: %s\n" % err)
+        return 2
+    except Exception as err:
+        if brief:
+            return 0
+        sys.stderr.write("fm-log: recall failed: %s\n" % (err if isinstance(err, LookupError) else
+                         "index unavailable (%s); run fm-log.sh index --rebuild" % err))
+        return 1
+    if brief and not found:
+        return 0
+    print(text)
+    return 0
+
 def main(argv):
+    if len(argv) >= 2 and argv[1] == "recall":
+        return cmd_recall(argv[2:])
     cmds = {"sync": (cmd_sync, 8), "add": (cmd_add, 6), "ticket": (cmd_ticket, 4),
-            "learn": (cmd_learn, 3), "unresolved": (cmd_unresolved, 1)}
+            "learn": (cmd_learn, 3), "unresolved": (cmd_unresolved, 1), "index": (cmd_index, 7)}
     if len(argv) < 2 or argv[1] not in cmds or len(argv) - 2 != cmds[argv[1]][1]:
         sys.stderr.write("fm_log.py: internal usage error; run bin/fm-log.sh\n")
         return 2
-    cmds[argv[1]][0](argv[2:])
-    return 0
+    return cmds[argv[1]][0](argv[2:]) or 0
 
 
 if __name__ == "__main__":
