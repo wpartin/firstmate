@@ -1,0 +1,18 @@
+ok - ledger records render a golden day note, side notes, and replay is a no-op
+ok - queue.md renders every bucket from the snapshot and keeps the last good view when it fails
+ok - the log reads the fleet snapshot, never data/backlog.md
+ok - records split at midnight and a new day carries the previous Open at close
+ok - answers nest under their hold on its own day; an unanchored answer lands on its day as re:
+ok - inbox notes with a log day thread under each other and carry firstmate's reply
+ok - without config/log-tickets nothing is linked as a ticket
+ok - manual add is idempotent, learn files a note and a ledger record, unresolved finds nothing missing
+ok - the log refuses when off, unreachable, or owned by another home, and replays afterwards
+ok - enable turns on the ledger, lays out the log, and warns about a location outside the home
+ok - --wait bounds a non-quiet sync's wait for a held lock
+ok - refused teardown leaves the backlog item in flight
+ok - environment-selected adapters bypass the legacy markdown file override
+ok - a manual-backlog home dispatches and completes without a hard failure
+ok - a secondmate home keeps its own books paired through dispatch and completion
+ok - dispatching a persistent secondmate needs no backlog item
+
+[exited with code 0]
