@@ -793,6 +793,8 @@ EOF
   wait "$holder_pid" 2>/dev/null || true
 
   expect_code 0 "$status" "fm-session-start.sh must exit 0 even on a lock refusal"
+  assert_absent "$home/config/fleet-ledger" "a read-only start turned on the ledger"
+  assert_absent "$home/data/log" "a read-only start created the captain's log"
   assert_contains "$out" "READ-ONLY SESSION" "read-only banner missing on lock refusal"
   assert_contains "$out" "another live firstmate session holds the lock" "read-only banner did not surface fm-lock.sh's own error text"
   assert_contains "$out" "Skipping every mutating step" "read-only banner did not explain what was skipped"
@@ -2757,7 +2759,7 @@ test_reemit_keeps_repair_ownership_with_the_lock_holder
 
 echo "# fm-session-start.test.sh: all assertions passed"
 
-# A locked start renders the captain's log once and prints only today's note path.
+# A locked start logs by default, prints only today's note path, and `off` materializes nothing.
 test_captains_log_note_path_is_printed_when_enabled() {
   local rec root home fakebin out
   rec=$(new_world captains-log)
@@ -2766,13 +2768,16 @@ $rec
 EOF2
   make_fake_toolchain "$fakebin"
   make_fake_ps_claude "$fakebin"
+  printf 'off\n' > "$home/config/log"
   out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
-  assert_not_contains "$out" "captain's log:" "a home without config/log mentioned the log"
-  printf 'on\n' > "$home/config/log"
-  : > "$home/config/fleet-ledger"
+  assert_not_contains "$out" "captain's log:" "a home with the log off mentioned the log"
+  assert_absent "$home/config/fleet-ledger" "the log off still turned on the ledger"
+  assert_absent "$home/data/log" "the log off still created the log"
+  rm -f "$home/config/log"
   out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
   assert_contains "$out" "captain's log: today's note is $home/data/log/" "digest did not print today's note path"
+  assert_present "$home/config/fleet-ledger" "the default log did not turn on the ledger"
   [ -n "$(find "$home/data/log" -name "$(date +%Y-%m-%d).md")" ] || fail "session start did not render today's note"
-  pass "a locked session start renders the captain's log and prints today's note path"
+  pass "a locked session start logs by default, prints today's note path, and off writes nothing"
 }
 test_captains_log_note_path_is_printed_when_enabled

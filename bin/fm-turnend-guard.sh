@@ -170,7 +170,7 @@ fm_primary_scope_matches "$FM_ROOT" "$STATE" || exit 0
 
 # Captain's log (docs/captains-log.md): render this turn's records in a
 # detached, bounded, quiet sync so log lag never delays or blocks this guard.
-if [ -f "$CONFIG/log" ] && [ -x "$SCRIPT_DIR/fm-log.sh" ]; then
+if [ "$(head -n 1 "$CONFIG/log" 2>/dev/null | tr -d '[:space:]')" != off ] && [ -x "$SCRIPT_DIR/fm-log.sh" ]; then
   ( FM_HOME=$FM_HOME FM_STATE_OVERRIDE=$STATE FM_CONFIG_OVERRIDE=$CONFIG \
       nohup "$SCRIPT_DIR/fm-log.sh" sync --quiet --wait 2 </dev/null >/dev/null 2>&1 & ) 2>/dev/null || true
 fi

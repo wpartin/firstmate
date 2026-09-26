@@ -230,7 +230,7 @@ See [`trace-context.md`](trace-context.md) for carrier semantics, supported rout
 
 ## Fleet activity ledger (config/fleet-ledger)
 
-See [`fleet-ledger.md`](fleet-ledger.md) for the opt-in setup, record contract, and limits.
+See [`fleet-ledger.md`](fleet-ledger.md) for the setup (on by default wherever the captain's log is on), record contract, and limits.
 
 ## Captain's log (config/log, config/log-tickets, config/log-people, config/log-redact)
 

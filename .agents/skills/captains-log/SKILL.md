@@ -30,11 +30,10 @@ Otherwise answer it with `bin/fm-inbox.sh reply <id>` so the reply is threaded u
 
 ## Turning it on, off, or elsewhere
 
-- `bin/fm-log.sh enable` puts the log in `data/log/`; this is the default and needs no discussion.
+- The log is on in `data/log/` by default in every home, including second mate homes; `bin/fm-log.sh enable` states it explicitly and needs no discussion.
 - A folder outside the home, such as a cloud-synced Obsidian vault, needs the captain's explicit word for that folder, because everything in the log then syncs to that provider.
   Say so plainly before running `bin/fm-log.sh enable <folder>`.
 - `bin/fm-log.sh disable` stops writing and keeps the files.
-- Never enable the log in a home the captain did not name.
 
 ## Answering "where is it"
 

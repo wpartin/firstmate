@@ -1,6 +1,6 @@
 # Fleet activity ledger
 
-The fleet activity ledger is an opt-in, append-only file that outside tools can read to follow what a firstmate home is doing: which tasks were dispatched, what their workers reported, when a PR became ready for review, when their work merged, and when they were cleaned up.
+The fleet activity ledger is an append-only file that outside tools can read to follow what a firstmate home is doing: which tasks were dispatched, what their workers reported, when a PR became ready for review, when their work merged, and when they were cleaned up.
 It is the stable, documented hook for firstmate status; this page is its contract.
 The [captain's log](captains-log.md) is rendered from it.
 
@@ -8,6 +8,7 @@ The [captain's log](captains-log.md) is rendered from it.
 
 Create the presence flag `config/fleet-ledger` in a firstmate home to turn the ledger on, and delete it to turn the ledger off.
 The flag is local, gitignored, per home, and not inherited by second mate homes, so each home that should publish a ledger needs its own flag.
+A home whose captain's log is on, which is the default, has the flag created by its locked session start, so deleting it there only lasts until the next start; turn the log `off` first to keep the ledger off.
 While the flag is absent, each producer performs one file-existence test and nothing else: no process starts and nothing is written.
 
 ## The file
