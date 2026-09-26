@@ -961,7 +961,11 @@ fm_lock_try_acquire() {
   # A failed create that leaves no lock path behind means the lock location
   # itself cannot be created (an unwritable state directory, for example), not
   # that a holder exists; stealing from an absent lock would recurse through
-  # ever-longer .steal paths forever.
+  # ever-longer .steal paths forever. One retry absorbs a lock path that
+  # changed under the first create.
+  if [ ! -e "$lockdir" ] && [ ! -L "$lockdir" ]; then
+    fm_lock_try_create "$lockdir" && return 0
+  fi
   if [ ! -e "$lockdir" ] && [ ! -L "$lockdir" ]; then
     FM_LOCK_HELD_PID=
     FM_LOCK_UNCREATABLE=1
