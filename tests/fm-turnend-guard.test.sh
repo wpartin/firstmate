@@ -2276,7 +2276,7 @@ test_hook_away_daemon_blocks_dead_daemon_despite_poll_derived_grace
 test_hook_away_daemon_blocks_beacon_older_than_poll_derived_grace
 test_hook_no_afk_ignores_poll_derived_grace
 
-# With the captain's log enabled, every primary turn end starts one detached,
+# With the captain's log on (absent config/log counts as on), every primary turn end starts one detached,
 # quiet log sync; the guard never waits for it.
 test_hook_starts_a_detached_captains_log_sync() {
   local dir out status start elapsed
@@ -2287,12 +2287,13 @@ printf '%s\n' "$*" >> "$FM_STATE_OVERRIDE/log-sync-calls"
 sleep 4
 SH
   chmod +x "$dir/bin/fm-log.sh"
+  mkdir -p "$dir/config"
+  printf 'off\n' > "$dir/config/log"
   out=$(run_hook "$dir" false); status=$?
   expect_code 0 "$status" "hook with the log off"
   sleep 1
   assert_absent "$dir/state/log-sync-calls" "a log sync ran with the log off"
-  mkdir -p "$dir/config"
-  printf 'on\n' > "$dir/config/log"
+  rm -f "$dir/config/log"
   start=$(date +%s)
   out=$(run_hook "$dir" false); status=$?
   elapsed=$(( $(date +%s) - start ))
@@ -2301,6 +2302,6 @@ SH
   [ "$elapsed" -lt 3 ] || fail "the hook waited ${elapsed}s for the log sync"
   sleep 1
   assert_equals "sync --quiet --wait 2" "$(cat "$dir/state/log-sync-calls" 2>/dev/null)" "log sync call"
-  pass "fm-turnend-guard: starts a detached quiet captain's log sync when the log is on"
+  pass "fm-turnend-guard: starts a detached quiet captain's log sync unless the log is off"
 }
 test_hook_starts_a_detached_captains_log_sync

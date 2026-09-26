@@ -8,19 +8,19 @@ It is a projection of records firstmate already keeps, so nothing in it depends 
 
 ## Turning it on
 
-The log is off until a home enables it:
+The log is on by default: a home with no `config/log` logs to `data/log/` from its first locked session start, the main home and every second mate home alike.
 
 ```
-bin/fm-log.sh enable            # the log lives in data/log/
+bin/fm-log.sh enable            # explicit and idempotent: the log lives in data/log/
 bin/fm-log.sh enable <folder>   # the whole log lives in <folder> instead
 bin/fm-log.sh disable           # stop writing; the files stay
 ```
 
-`config/log` holds the setting: absent or `off` means off, `on` or an empty line means `data/log/`, and a path means that folder.
-Enabling also turns on the [fleet activity ledger](fleet-ledger.md), which the log is rendered from.
+`config/log` holds the setting: `off` means off, absent, `on`, or an empty line means `data/log/`, and a path means that folder.
+While the log is on, each locked session start (`bin/fm-log.sh start`) creates the [fleet activity ledger](fleet-ledger.md) flag and the log layout when missing, since the log is rendered from the ledger; a read-only session writes nothing, and `off` materializes nothing.
 The default location sits under `data/`, which is private and gitignored.
 A folder outside the home, such as a cloud-synced Obsidian vault, works the same way, but whatever syncs that folder copies every note, so enabling one prints that warning.
-Each home's log is its own; second mate homes do not inherit `config/log`, and a folder already claimed by another home (`.fm-log-owner`) is refused.
+Each home's log is its own; second mate homes do not inherit `config/log` and so take the same default into their own `data/log/`, and a folder already claimed by another home (`.fm-log-owner`) is refused.
 
 ## Layout
 

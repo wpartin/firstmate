@@ -257,7 +257,7 @@ test_off_unreachable_and_foreign_owner_refuse() {
   local home rc
   home=$(make_home refusals)
   snapshot "$home"
-  rm -f "$home/config/log"
+  printf 'off\n' > "$home/config/log"
   run_log "$home" sync >/dev/null 2>&1; rc=$?
   assert_equals 3 "$rc" "sync with the log off"
   run_log "$home" sync --quiet; rc=$?
@@ -302,6 +302,41 @@ test_enable_turns_on_the_ledger_and_lays_out_the_log() {
   pass "enable turns on the ledger, lays out the log, and warns about a location outside the home"
 }
 
+test_start_defaults_on_and_honors_off_and_a_folder() {
+  local home root rc sm
+  home="$TMP_ROOT/start-default"
+  mkdir -p "$home/state" "$home/data" "$home/config"
+  snapshot "$home"
+  assert_equals "$home/data/log" "$(run_log "$home" path)" "absent config/log root"
+  run_log "$home" start >/dev/null || fail "start failed on a fresh home"
+  assert_present "$home/config/fleet-ledger" "start turns on the ledger"
+  assert_present "$home/data/log/README.md" "start lays out the log"
+  assert_present "$(day_note "$home" 2026-09-24)" "today's note"
+  run_log "$home" start >/dev/null || fail "a second start was not idempotent"
+  home="$TMP_ROOT/start-off"
+  mkdir -p "$home/state" "$home/data" "$home/config"
+  printf 'off\n' > "$home/config/log"
+  run_log "$home" start >/dev/null 2>&1; rc=$?
+  assert_equals 3 "$rc" "start with the log off"
+  assert_absent "$home/config/fleet-ledger" "off still turned on the ledger"
+  assert_absent "$home/data/log" "off still created the log"
+  home="$TMP_ROOT/start-folder"
+  mkdir -p "$home/state" "$home/data" "$home/config"
+  snapshot "$home"
+  printf '%s\n' "$TMP_ROOT/start-folder-log" > "$home/config/log"
+  root=$(run_log "$home" path)
+  assert_equals "$TMP_ROOT/start-folder-log" "$root" "relocated root"
+  run_log "$home" start >/dev/null || fail "start failed for a relocated log"
+  assert_present "$root/README.md" "relocated layout"
+  assert_absent "$home/data/log" "relocated log still wrote data/log"
+  sm="$TMP_ROOT/start-default/secondmates/sm-a"
+  mkdir -p "$sm/state" "$sm/data" "$sm/config"
+  snapshot "$sm"
+  run_log "$sm" start >/dev/null || fail "start failed in a secondmate home"
+  assert_present "$(day_note "$sm" 2026-09-24)" "secondmate note in its own data/log"
+  assert_equals "$(cd "$sm" && pwd -P)" "$(head -n 1 "$sm/data/log/.fm-log-owner")" "secondmate log owner"
+  pass "start logs by default, honors off and a folder, and a secondmate home logs to its own data/log"
+}
 
 test_wait_bounds_a_non_quiet_sync() {
   local home holder start elapsed rc i
@@ -333,4 +368,5 @@ test_no_ticket_patterns_means_no_ticket_links
 test_manual_add_learn_and_unresolved
 test_off_unreachable_and_foreign_owner_refuse
 test_enable_turns_on_the_ledger_and_lays_out_the_log
+test_start_defaults_on_and_honors_off_and_a_folder
 test_wait_bounds_a_non_quiet_sync

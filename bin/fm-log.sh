@@ -11,16 +11,20 @@
 # script writes it and nothing depends on firstmate remembering to update it.
 #
 # Location (config/log, one line, per home, not inherited):
-#   absent        the log is off for this home
-#   empty or on   <home>/data/log
-#   <path>        that folder instead (~ expands); the whole log moves there
-#   off           the log is off
+#   absent, empty, or on   <home>/data/log (the default)
+#   <path>                 that folder instead (~ expands); the whole log moves there
+#   off                    the log is off
 #
 # Usage:
 #   fm-log.sh enable [<path>]      turn the log on (and the fleet ledger it needs),
 #                                  create the layout and README, render once;
 #                                  prints the log root. A path outside the home
 #                                  prints a one-time sync warning.
+#   fm-log.sh start [--wait <seconds>]
+#                                  when the log is on, materialize the fleet ledger
+#                                  (config/fleet-ledger) and the layout if missing,
+#                                  then sync; the locked session start's one owner
+#                                  of the default. Exit 3 and write nothing when off.
 #   fm-log.sh disable              write `off` to config/log; the files stay
 #   fm-log.sh path                 print the log root; exit 1 when off
 #   fm-log.sh sync [--quiet] [--wait <seconds>]
@@ -48,7 +52,7 @@
 #     folder) stops safely: state/.log-pending is touched, the cursor stays put,
 #     and the next sync replays from the ledger, which is the source of truth.
 #   - A snapshot failure keeps the last queue.md and marks it stale.
-#   - Only sync, enable, add, ticket, and learn write, always under
+#   - Only sync, start, enable, add, ticket, and learn write, always under
 #     state/.log.lock, and never delete anything.
 #
 # Environment: FM_HOME, FM_STATE_OVERRIDE, FM_DATA_OVERRIDE, FM_CONFIG_OVERRIDE
@@ -82,8 +86,7 @@ usage() {
 # Print the configured log root, or return 3 when the log is off.
 log_root() {
   local value=''
-  [ -f "$CONFIG/log" ] || return 3
-  IFS= read -r value < "$CONFIG/log" || true
+  [ ! -f "$CONFIG/log" ] || IFS= read -r value < "$CONFIG/log" || true
   value=${value%%[[:space:]]}
   value=${value##[[:space:]]}
   # shellcheck disable=SC2088 # Matching a literal leading tilde, not expanding one.
@@ -203,6 +206,15 @@ do_sync() {  # <quiet 0|1> <wait-seconds>
   rm -f -- "$PENDING"
 }
 
+# Idempotently create the fleet ledger flag and the log layout for an on log.
+materialize() {  # <root>
+  mkdir -p "$CONFIG" "$STATE" || die "cannot create this home's config and state directories"
+  [ -e "$CONFIG/fleet-ledger" ] || : > "$CONFIG/fleet-ledger"
+  claim_root "$1"
+  mkdir -p "$1/tickets" "$1/projects" "$1/people" "$1/learnings" "$1/attachments"
+  write_readme "$1"
+}
+
 with_write_lock() {  # <command...>
   local rc
   load_lock_lib
@@ -221,17 +233,22 @@ case "$cmd" in
     [ "$#" -le 1 ] || usage
     mkdir -p "$CONFIG" "$STATE" || die "cannot create this home's config and state directories"
     if [ "$#" -eq 1 ]; then printf '%s\n' "$1" > "$CONFIG/log"; else printf 'on\n' > "$CONFIG/log"; fi
-    [ -e "$CONFIG/fleet-ledger" ] || : > "$CONFIG/fleet-ledger"
     root=$(log_root) || die "config/log could not be resolved"
-    claim_root "$root"
-    mkdir -p "$root/tickets" "$root/projects" "$root/people" "$root/learnings" "$root/attachments"
-    write_readme "$root"
+    materialize "$root"
     case "$root" in
       "$DATA"/*|"$FM_HOME"/*) ;;
       *) printf 'fm-log: the log now lives at %s, outside this home; whatever syncs that folder (for example a cloud drive) will copy every note. Keep regulated or sensitive work on the default location.\n' "$root" >&2 ;;
     esac
     do_sync 0 10 >/dev/null
     printf '%s\n' "$root"
+    ;;
+  start)
+    wait=10
+    if [ "${1:-}" = --wait ]; then [ "$#" -eq 2 ] || usage; wait=$2; shift 2; fi
+    [ "$#" -eq 0 ] || usage
+    root=$(log_root) || exit 3
+    materialize "$root"
+    do_sync 0 "$wait"
     ;;
   disable)
     [ "$#" -eq 0 ] || usage
