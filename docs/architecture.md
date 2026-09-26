@@ -355,7 +355,7 @@ The `data/secondmates.md` line contract is owned by the [`secondmate-provisionin
 
 ## Delivery modes are explicit per task
 
-Every task first runs the no-mistakes pipeline as a review pass with push, PR, and CI skipped and holds the reviewed branch; `no-mistakes` tasks then publish through the pipeline, `direct-PR` tasks have the worker open the PR, and `local-only` tasks stay local until firstmate performs an approved fast-forward merge.
+Every task first runs the no-mistakes pipeline as a review pass with push, PR, and CI skipped and holds the reviewed branch; only when the task is authorized to publish do `no-mistakes` tasks publish through the pipeline and `direct-PR` tasks have the worker open the PR, and `local-only` tasks stay local until firstmate performs an approved fast-forward merge.
 A task publishes only when its publish authorization, off by default and selected at scaffold time or granted later by a firstmate steer, allows it.
 Each task's mode and `yolo` merge posture are firstmate's decision at intake.
 The mode is passed explicitly to `bin/fm-brief.sh`, and both values are passed explicitly to `bin/fm-spawn.sh` and `bin/fm-promote.sh`; each command refuses to guess the values it consumes.
