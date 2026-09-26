@@ -1312,20 +1312,27 @@ test_crewmate_scaffolds_forbid_pool_administration() {
 # A ship brief must state the target project's own PR quality limits when that
 # project enforces them, because a generated pull request body breaches them by
 # default and the worker is the one who can prevent it. The limits themselves
-# belong to bin/fm-anti-slop-check.sh; what is asserted here is that the brief
+# belong to bin/fm-pr-quality-check.sh; what is asserted here is that the brief
 # carries them, that they come from the project, and that a project without the
 # check is untouched.
 
+# fm_brief_action_home <home>: give a test home the private PR quality action
+# setting, naming an invented action.
+fm_brief_action_home() {
+  mkdir -p "$1/config"
+  printf 'example-org/pr-guard\n' > "$1/config/pr-quality-action"
+}
+
 # fm_brief_project <dir> <max-lines> [term]: a project directory configuring the
-# anti-slop check at the given limit, with an optional blocked term.
+# PR quality check at the given limit, with an optional blocked term.
 fm_brief_project() {
   local dir=$1 max_lines=$2 term=${3:-}
   mkdir -p "$dir/.github/workflows"
   {
     printf 'jobs:\n'
-    printf '  anti-slop:\n'
+    printf '  pr-guard:\n'
     printf '    steps:\n'
-    printf '      - uses: peakoss/anti-slop@57858eead489d08b255fab2af45a506c2ca6eab2 # v0.3.0\n'
+    printf '      - uses: example-org/pr-guard@57858eead489d08b255fab2af45a506c2ca6eab2 # v0.3.0\n'
     printf '        with:\n'
     printf '          max-changed-lines: %s\n' "$max_lines"
     printf '          max-emoji-count: 1\n'
@@ -1333,12 +1340,13 @@ fm_brief_project() {
       printf '          blocked-terms: |\n'
       printf '            %s\n' "$term"
     fi
-  } > "$dir/.github/workflows/anti-slop.yaml"
+  } > "$dir/.github/workflows/pr-guard.yaml"
 }
 
 test_ship_brief_states_the_projects_pr_quality_limits() {
-  local home="$TMP_ROOT/antislop-home" brief
+  local home="$TMP_ROOT/prquality-home" brief
   mkdir -p "$home/data" "$home/projects"
+  fm_brief_action_home "$home"
   fm_brief_project "$home/projects/guarded" 1234 forbiddenword
 
   FM_HOME="$home" "$ROOT/bin/fm-brief.sh" as-1 guarded --mode direct-PR >/dev/null 2>&1 \
@@ -1353,16 +1361,19 @@ test_ship_brief_states_the_projects_pr_quality_limits() {
     "the brief must state the project's emoji limit"
   assert_grep '"forbiddenword"' "$brief" \
     "the brief must state the terms that project blocks"
-  assert_grep "bin/fm-anti-slop-check.sh --project ." "$brief" \
+  assert_grep "bin/fm-pr-quality-check.sh --project ." "$brief" \
     "the brief must point at the command that measures against those limits"
+  assert_grep "--action example-org/pr-guard" "$brief" \
+    "the printed command must name the action this home configures"
   assert_grep "before you report done" "$brief" \
     "the brief must tie the measurement to the definition of done"
   pass "fm-brief: a ship brief states the target project's own PR quality limits"
 }
 
 test_ship_brief_limits_track_the_project() {
-  local home="$TMP_ROOT/antislop-track" a b
+  local home="$TMP_ROOT/prquality-track" a b
   mkdir -p "$home/data" "$home/projects"
+  fm_brief_action_home "$home"
   fm_brief_project "$home/projects/tight" 100
   fm_brief_project "$home/projects/loose" 9000
 
@@ -1378,9 +1389,23 @@ test_ship_brief_limits_track_the_project() {
   pass "fm-brief: the stated limits track the project the brief is for"
 }
 
+test_home_without_an_action_changes_nothing() {
+  local home="$TMP_ROOT/prquality-noaction" brief
+  mkdir -p "$home/data" "$home/projects"
+  fm_brief_project "$home/projects/guarded" 1234
+
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" as-noaction guarded --mode direct-PR >/dev/null 2>&1 \
+    || fail "scaffolding a brief in a home with no PR quality action must succeed"
+  brief="$home/data/as-noaction/brief.md"
+  assert_no_grep "Pull request quality limits" "$brief" \
+    "a home that configures no PR quality action must add no section"
+  pass "fm-brief: a home with no PR quality action configured states no limits"
+}
+
 test_project_without_the_check_changes_nothing() {
-  local home="$TMP_ROOT/antislop-none" plain
+  local home="$TMP_ROOT/prquality-none" plain
   mkdir -p "$home/data" "$home/projects/plain/.github/workflows"
+  fm_brief_action_home "$home"
   cat > "$home/projects/plain/.github/workflows/ci.yml" <<'YAML'
 name: CI
 on: [push]
@@ -1396,7 +1421,7 @@ YAML
   plain="$home/data/as-plain/brief.md"
   assert_no_grep "Pull request quality limits" "$plain" \
     "a project that enforces no such check must add no section"
-  assert_no_grep "fm-anti-slop-check.sh" "$plain" \
+  assert_no_grep "fm-pr-quality-check.sh" "$plain" \
     "a project that enforces no such check must not be told to measure against one"
 
   # And the same brief for a project that is not cloned at all is equally clean.
@@ -1409,8 +1434,9 @@ YAML
 # The repo NAME cannot locate a project whose clone is named something else, so
 # an unresolvable name must be reported rather than silently dropping the limits.
 test_unresolvable_project_is_reported_not_silent() {
-  local home="$TMP_ROOT/antislop-note" out
+  local home="$TMP_ROOT/prquality-note" out
   mkdir -p "$home/data" "$home/projects"
+  fm_brief_action_home "$home"
   out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" as-note somewhere-else --mode direct-PR 2>&1) \
     || fail "an unresolvable project must not fail the scaffold"
   assert_contains "$out" "no local copy of 'somewhere-else'" \
@@ -1421,9 +1447,10 @@ test_unresolvable_project_is_reported_not_silent() {
 }
 
 test_project_dir_overrides_name_resolution() {
-  local home="$TMP_ROOT/antislop-override" elsewhere
+  local home="$TMP_ROOT/prquality-override" elsewhere
   mkdir -p "$home/data" "$home/projects"
-  elsewhere="$TMP_ROOT/antislop-elsewhere"
+  fm_brief_action_home "$home"
+  elsewhere="$TMP_ROOT/prquality-elsewhere"
   fm_brief_project "$elsewhere" 4321
 
   FM_HOME="$home" "$ROOT/bin/fm-brief.sh" as-override odd-name --mode direct-PR --project-dir "$elsewhere" >/dev/null 2>&1 \
@@ -1434,8 +1461,9 @@ test_project_dir_overrides_name_resolution() {
 }
 
 test_project_dir_is_refused_where_it_does_not_apply() {
-  local home="$TMP_ROOT/antislop-refuse" out status
+  local home="$TMP_ROOT/prquality-refuse" out status
   mkdir -p "$home/data" "$home/projects"
+  fm_brief_action_home "$home"
 
   out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" as-scout proj --scout --project-dir "$TMP_ROOT" 2>&1); status=$?
   expect_code 1 "$status" "--project-dir must be refused on a scout brief"
@@ -1449,13 +1477,14 @@ test_project_dir_is_refused_where_it_does_not_apply() {
 # A limit of 0 disables its rule upstream, so the brief must not state it. This
 # also exercises the path where a rule is skipped while others still render.
 test_disabled_rules_are_omitted_not_stated() {
-  local home="$TMP_ROOT/antislop-disabled" brief
+  local home="$TMP_ROOT/prquality-disabled" brief
   mkdir -p "$home/data" "$home/projects/partly/.github/workflows"
-  cat > "$home/projects/partly/.github/workflows/anti-slop.yaml" <<'YAML'
+  fm_brief_action_home "$home"
+  cat > "$home/projects/partly/.github/workflows/pr-guard.yaml" <<'YAML'
 jobs:
-  anti-slop:
+  pr-guard:
     steps:
-      - uses: peakoss/anti-slop@57858eead489d08b255fab2af45a506c2ca6eab2 # v0.3.0
+      - uses: example-org/pr-guard@57858eead489d08b255fab2af45a506c2ca6eab2 # v0.3.0
         with:
           max-changed-lines: 777
           max-changed-files: 0
@@ -1476,13 +1505,14 @@ YAML
 # A project that runs the check but whose configuration cannot be read must not
 # leave the worker believing there are no limits.
 test_unreadable_limits_still_warn_the_worker() {
-  local home="$TMP_ROOT/antislop-broken" brief
+  local home="$TMP_ROOT/prquality-broken" brief
   mkdir -p "$home/data" "$home/projects/broken/.github/workflows"
-  cat > "$home/projects/broken/.github/workflows/anti-slop.yaml" <<'YAML'
+  fm_brief_action_home "$home"
+  cat > "$home/projects/broken/.github/workflows/pr-guard.yaml" <<'YAML'
 jobs:
-  anti-slop:
+  pr-guard:
     steps:
-      - uses: peakoss/anti-slop@v0.3.0
+      - uses: example-org/pr-guard@v0.3.0
         with:
           max-changed-lines: not-a-number
 YAML
@@ -1566,6 +1596,7 @@ test_branch_prefix_command_is_shell_safe
 test_crewmate_scaffolds_forbid_pool_administration
 test_ship_brief_states_the_projects_pr_quality_limits
 test_ship_brief_limits_track_the_project
+test_home_without_an_action_changes_nothing
 test_project_without_the_check_changes_nothing
 test_unresolvable_project_is_reported_not_silent
 test_project_dir_overrides_name_resolution

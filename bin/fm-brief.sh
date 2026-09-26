@@ -118,9 +118,9 @@
 # a later scout promotion could not outrank), stops the scaffold before
 # anything is written. Secondmate charters never take it.
 # A ship brief also gains a PR quality limits section when the target project
-# configures the anti-slop PR check, so the worker reads that project's own
+# configures the PR quality check, so the worker reads that project's own
 # limits and the command that measures against them. The limits and the
-# applicability test come from bin/fm-anti-slop-check.sh, which owns both; this
+# applicability test come from bin/fm-pr-quality-check.sh, which owns both; this
 # script only renders what that script reports. A project with no such check
 # changes nothing.
 # The repo NAME cannot itself locate the project, so the directory is resolved
@@ -609,10 +609,10 @@ exit 0
 fi
 
 # --- PR quality limits ------------------------------------------------------
-# bin/fm-anti-slop-check.sh owns both the applicability test and the limits, so
+# bin/fm-pr-quality-check.sh owns both the applicability test and the limits, so
 # this renders whatever it reports and states nothing of its own.
-ANTI_SLOP_SECTION=""
-CHECKER="$FM_ROOT/bin/fm-anti-slop-check.sh"
+PR_QUALITY_SECTION=""
+CHECKER="$FM_ROOT/bin/fm-pr-quality-check.sh"
 
 resolve_project_dir() {
   local name=$1 candidate
@@ -641,7 +641,7 @@ project_base_branch() {
   esac
 }
 
-add_line() { ANTI_SLOP_SECTION="$ANTI_SLOP_SECTION$1
+add_line() { PR_QUALITY_SECTION="$PR_QUALITY_SECTION$1
 "; }
 
 # A limit of 0, or one this script could not read as a number, disables its rule.
@@ -653,11 +653,11 @@ rule_enabled() {
   esac
 }
 
-build_anti_slop_section() {
+build_pr_quality_section() {
   local dir=$1 limits base rc=0
   # `|| rc=$?` keeps a refusal from ending the scaffold under `set -e`: an
   # unreadable configuration is reported in the brief, not a scaffold failure.
-  limits=$("$CHECKER" --project "$dir" --print-limits 2>&1) || rc=$?
+  limits=$(FM_CONFIG_OVERRIDE="$CONFIG" "$CHECKER" --project "$dir" --print-limits 2>&1) || rc=$?
 
   add_line "# Pull request quality limits - enforced by this project's CI"
   if [ "$rc" -ne 0 ]; then
@@ -668,13 +668,14 @@ build_anti_slop_section() {
     add_line "Resolve that first, then measure your branch and pull request description before reporting done."
   else
     local max_lines='' max_files='' max_desc='' max_emoji='' max_code='' key val line
-    local terms="" paths="" applicable=no
+    local terms="" paths="" applicable=no action=""
     while IFS= read -r line; do
       [ -n "$line" ] || continue
       key=${line%%=*}
       val=${line#*=}
       case "$key" in
         applicable) applicable=$val ;;
+        action_uses) action=${val%%@*} ;;
         max_changed_lines) max_lines=$val ;;
         max_changed_files) max_files=$val ;;
         max_description_length) max_desc=$val ;;
@@ -687,7 +688,7 @@ build_anti_slop_section() {
 $limits
 LIMITS
     if [ "$applicable" != yes ]; then
-      ANTI_SLOP_SECTION=""
+      PR_QUALITY_SECTION=""
       return 0
     fi
     add_line "This project runs an automated pull request quality check that hard-fails, and it has no bypass."
@@ -702,10 +703,10 @@ LIMITS
     if [ -n "$paths" ]; then add_line "- These paths must not be changed: $paths."; fi
     base=$(project_base_branch "$dir")
     add_line "Write the description deliberately and measure it in your worktree before you report done:"
-    add_line "\`$CHECKER --project . --base $base --head HEAD --body <your-description-file>\`"
+    add_line "\`$CHECKER --project . --action $action --base $base --head HEAD --body <your-description-file>\`"
     add_line "It prints every measured value against its limit and exits non-zero on any breach, naming all of them in one run."
   fi
-  ANTI_SLOP_SECTION="$ANTI_SLOP_SECTION
+  PR_QUALITY_SECTION="$PR_QUALITY_SECTION
 "
   return 0
 }
@@ -713,13 +714,13 @@ LIMITS
 if [ -x "$CHECKER" ]; then
   if [ "$PROJECT_DIR_SET" -eq 1 ]; then
     if PROJECT_PATH=$(resolve_project_dir "$PROJECT_DIR"); then
-      build_anti_slop_section "$PROJECT_PATH"
+      build_pr_quality_section "$PROJECT_PATH"
     else
       echo "error: --project-dir is not a directory: $PROJECT_DIR" >&2
       exit 1
     fi
   elif PROJECT_PATH=$(resolve_project_dir "$REPO"); then
-    build_anti_slop_section "$PROJECT_PATH"
+    build_pr_quality_section "$PROJECT_PATH"
   else
     echo "note: no local copy of '$REPO' under $PROJECTS, so this brief states no PR quality limits; pass --project-dir <path> if that project enforces any" >&2
   fi
@@ -791,7 +792,7 @@ $ASK_USER_BLOCK
    Firstmate's reply normally writes that closing line at answer time; when a blocker or wait clears WITHOUT a firstmate reply, append \`resolved [at=<epoch>]: {how it cleared}\` yourself (same \`[key=<slug>]\` if you opened it with one) as you resume.
 $SHARED_INFRA_RULE
 
-$ANTI_SLOP_SECTION$INBOX_SECTION
+$PR_QUALITY_SECTION$INBOX_SECTION
 
 # Project memory
 If \`AGENTS.md\` or \`CLAUDE.md\` already exists, or if this task produced durable project-intrinsic knowledge, run \`$FM_ROOT/bin/fm-ensure-agents-md.sh .\` in the worktree.

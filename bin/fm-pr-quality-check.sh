@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# fm-anti-slop-check.sh - measure a branch and a PR body against the anti-slop
+# fm-pr-quality-check.sh - measure a branch and a PR body against the
 # PR quality check a project's own GitHub workflow configures, before that body
 # ever reaches a forge.
 #
@@ -9,10 +9,10 @@
 # on the branch instead of on the captain's PR.
 #
 # Usage:
-#   fm-anti-slop-check.sh --project <dir> --base <ref> [--head <ref>] [--body <file>] [--title <text>]
-#   fm-anti-slop-check.sh --project <dir> --body <file> [--title <text>]
-#   fm-anti-slop-check.sh --project <dir> --print-limits
-#   fm-anti-slop-check.sh --help
+#   fm-pr-quality-check.sh --project <dir> --base <ref> [--head <ref>] [--body <file>] [--title <text>]
+#   fm-pr-quality-check.sh --project <dir> --body <file> [--title <text>]
+#   fm-pr-quality-check.sh --project <dir> --print-limits [--action <owner/name>]
+#   fm-pr-quality-check.sh --help
 #
 #   --project <dir>   the project working tree to measure. Required.
 #   --base <ref>      the branch the PR would target. Enables the diff rules,
@@ -27,6 +27,9 @@
 #                     and exit, measuring nothing. This is the one parser for
 #                     that workflow, so callers that need the numbers (for
 #                     example bin/fm-brief.sh) read them from here.
+#   --action <ref>    the GitHub Action whose step carries the limits, as
+#                     owner/name. Defaults to the one line in
+#                     <home>/config/pr-quality-action (see WHICH ACTION IT READS).
 #
 # At least one of --base or --body is required: with neither there is nothing to
 # measure. Rules that the given inputs cannot measure print as SKIP with the
@@ -34,26 +37,34 @@
 #
 # Exit codes:
 #   0  every measured rule is within its limit, or the project configures no
-#      anti-slop check at all (reported as not applicable)
+#      PR quality check at all (reported as not applicable)
 #   1  at least one measured rule breaches its limit; every breach is named
 #   2  the check could not be performed: bad usage, an unresolvable ref, or a
-#      workflow that names the anti-slop action but cannot be parsed
+#      workflow that names the configured PR quality action but cannot be parsed
 #
 # It never stops at the first breach. One run names every breach, so a body is
 # revised once rather than resubmitted rule by rule.
 #
+# WHICH ACTION IT READS
+# The action is a private per-home setting, never named in tracked code: the
+# first non-blank line of config/pr-quality-action under $FM_CONFIG_OVERRIDE,
+# else $FM_HOME/config, else this checkout's config/, as owner/name (any
+# @version suffix is ignored). --action overrides it. With no action
+# configured every project is reported as not applicable and exits 0.
+# docs/configuration.md "PR quality action" owns the setting.
+#
 # WHICH WORKFLOW IT READS
 # Every file under <project>/.github/workflows/ is scanned for a step whose
-# `uses:` names the anti-slop action. No filename is assumed and no limit is
+# `uses:` names the configured PR quality action. No filename is assumed and no limit is
 # hardcoded: the configured values come from that step's `with:` block, and any
 # input the step leaves unset falls back to the action's own documented default.
 # A project with no such step is reported as not applicable and exits 0. A file
 # that names the action but cannot be parsed exits 2 rather than reporting a
-# pass, and so does more than one anti-slop step, whose limits could disagree.
+# pass, and so does more than one PR quality step, whose limits could disagree.
 #
 # WHAT IT MEASURES, AND HOW FAITHFULLY
-# The reference is peakoss/anti-slop v0.3.0
-# (57858eead489d08b255fab2af45a506c2ca6eab2). Its check implementations and its
+# The reference is release v0.3.0 of the action this script was written for
+# (commit 57858eead489d08b255fab2af45a506c2ca6eab2). Its check implementations and its
 # input defaults were read from that tag, and the rules below reproduce them
 # rather than approximate them:
 #
@@ -144,6 +155,8 @@ HEAD=HEAD
 BODY=
 TITLE=
 PRINT_LIMITS=0
+ACTION=
+ACTION_SET=0
 TITLE_SET=0
 
 while [ "$#" -gt 0 ]; do
@@ -159,6 +172,8 @@ while [ "$#" -gt 0 ]; do
     --title) [ "$#" -ge 2 ] || die "--title requires a value"; TITLE=$2; TITLE_SET=1; shift 2 ;;
     --title=*) TITLE=${1#--title=}; TITLE_SET=1; shift ;;
     --print-limits) PRINT_LIMITS=1; shift ;;
+    --action) [ "$#" -ge 2 ] || die "--action requires a value"; ACTION=$2; ACTION_SET=1; shift 2 ;;
+    --action=*) ACTION=${1#--action=}; ACTION_SET=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "unknown argument: $1" ;;
   esac
@@ -177,7 +192,31 @@ fi
 
 command -v perl >/dev/null 2>&1 || die "perl is required to parse the workflow and measure the description"
 
-# --- locate the anti-slop step ----------------------------------------------
+# --- resolve the configured action -----------------------------------------
+if [ "$ACTION_SET" -eq 0 ]; then
+  SELF_ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." 2>/dev/null && pwd -P) || SELF_ROOT=
+  ACTION_FILE="${FM_CONFIG_OVERRIDE:-${FM_HOME:-$SELF_ROOT}/config}/pr-quality-action"
+  if [ -f "$ACTION_FILE" ]; then
+    ACTION=$(awk 'NF { print $1; exit }' "$ACTION_FILE" 2>/dev/null) || ACTION=
+  fi
+fi
+ACTION=${ACTION%%@*}
+case "$ACTION" in
+  "") ;;
+  *[!A-Za-z0-9._/-]*|/*|*/) die "the PR quality action must be an owner/name reference: '$ACTION'" ;;
+esac
+if [ -z "$ACTION" ]; then
+  if [ "$PRINT_LIMITS" -eq 1 ]; then
+    echo "applicable=no"
+  else
+    echo "project: $PROJECT"
+    echo "not applicable: no PR quality action is configured for this home"
+  fi
+  exit 0
+fi
+export FM_PR_QUALITY_ACTION="$ACTION"
+
+# --- locate the PR quality step -----------------------------------------------------------------------------
 # No filename is assumed: any workflow file may carry the step, so every one is
 # scanned for a `uses:` naming the action.
 WORKFLOW_DIR="$PROJECT/.github/workflows"
@@ -191,7 +230,7 @@ fi
 
 MATCHED=()
 for wf in ${CANDIDATES+"${CANDIDATES[@]}"}; do
-  if grep -qE '(^|[^[:alnum:]_.-])anti-slop@' "$wf" 2>/dev/null; then
+  if grep -qF "$ACTION@" "$wf" 2>/dev/null; then
     MATCHED+=("$wf")
   fi
 done
@@ -201,12 +240,12 @@ if [ "${#MATCHED[@]}" -eq 0 ]; then
     echo "applicable=no"
   else
     echo "project: $PROJECT"
-    echo "not applicable: this project configures no anti-slop PR check"
+    echo "not applicable: this project configures no PR quality check"
   fi
   exit 0
 fi
 if [ "${#MATCHED[@]}" -gt 1 ]; then
-  die "more than one workflow configures the anti-slop check, and their limits could disagree: ${MATCHED[*]}"
+  die "more than one workflow configures the PR quality check, and their limits could disagree: ${MATCHED[*]}"
 fi
 WORKFLOW=${MATCHED[0]}
 
@@ -267,7 +306,7 @@ for my $i (0 .. $#raw) {
     push @lines, { n => $i, indent => $indent, item => $item, rest => $rest };
 }
 
-# Find every step whose `uses:` names the anti-slop action.
+# Find every step whose `uses:` names the configured PR quality action.
 my @uses_idx;
 for my $j (0 .. $#lines) {
     my $rest = $lines[$j]{rest};
@@ -275,13 +314,13 @@ for my $j (0 .. $#lines) {
     my $val = $1;
     $val =~ s/\s+#.*$//;
     $val =~ s/\s+$//;
-    next unless $val =~ m{(?:^|/)anti-slop\@};
+    next unless $val =~ m{^\Q$ENV{FM_PR_QUALITY_ACTION}\E\@};
     push @uses_idx, { j => $j, value => $val, comment => ($rest =~ /#\s*(\S.*?)\s*$/ ? $1 : '') };
 }
 
-bail('a workflow names the anti-slop action but no step could be parsed from it')
+bail('a workflow names the configured PR quality action but no step could be parsed from it')
     if @uses_idx == 0;
-bail('more than one anti-slop step is configured, and their limits could disagree')
+bail('more than one PR quality step is configured, and their limits could disagree')
     if @uses_idx > 1;
 
 my $uses = $uses_idx[0];
@@ -347,7 +386,7 @@ if (defined $with_j) {
         if ($rest =~ /^([A-Za-z0-9_.-]+):\s*(.*)$/) {
             my ($key, $val) = ($1, $2);
             if ($val =~ /^[|>][+-]?\s*$/) {
-                bail("the anti-slop input '$key' uses a folded block scalar, which this parser does not read")
+                bail("the PR quality action input '$key' uses a folded block scalar, which this parser does not read")
                     if $val =~ /^>/;
                 $pending_key    = $key;
                 $pending_indent = $bl->{indent};
@@ -361,7 +400,7 @@ if (defined $with_j) {
             elsif ($val =~ /^"(.*)"$/) { $val = $1 }
             $given{$key} = { value => $val, block => 0 };
         } else {
-            bail('an anti-slop input could not be parsed: ' . $rest);
+            bail('an PR quality action input could not be parsed: ' . $rest);
         }
     }
     $flush->();
@@ -396,9 +435,9 @@ sub int_input {
     my $v = input_of($key);
     $v = '' unless defined $v;
     $v =~ s/^\s+|\s+$//g;
-    bail("the anti-slop input '$key' contains a template expression this parser cannot evaluate: $v")
+    bail("the PR quality action input '$key' contains a template expression this parser cannot evaluate: $v")
         if $v =~ /\$\{\{/;
-    bail("the anti-slop input '$key' is not a number: '$v'") unless $v =~ /^-?\d+$/;
+    bail("the PR quality action input '$key' is not a number: '$v'") unless $v =~ /^-?\d+$/;
     return $v + 0;
 }
 
@@ -409,7 +448,7 @@ sub bool_input {
     $v =~ s/^\s+|\s+$//g;
     return 1 if $v =~ /^(true|True|TRUE)$/;
     return 0 if $v =~ /^(false|False|FALSE)$/;
-    bail("the anti-slop input '$key' is not a boolean: '$v'");
+    bail("the PR quality action input '$key' is not a boolean: '$v'");
 }
 
 # `getMultilineInput`: trim the whole value, split on newlines, drop empty
@@ -418,7 +457,7 @@ sub list_input {
     my ($key) = @_;
     my $v = input_of($key);
     $v = '' unless defined $v;
-    bail("the anti-slop input '$key' contains a template expression this parser cannot evaluate")
+    bail("the PR quality action input '$key' contains a template expression this parser cannot evaluate")
         if $v =~ /\$\{\{/;
     $v =~ s/^\s+|\s+$//g;
     my @out;
@@ -655,7 +694,7 @@ if [ -n "$BODY" ]; then
   echo "body: $BODY"
 fi
 if [ "$CALIBRATED" != yes ]; then
-  echo "warning: this project pins anti-slop at '$ACTION_REF', not the $CALIBRATED_VERSION this script was calibrated against; any limit shown as a default may have moved upstream"
+  echo "warning: this project pins the PR quality action at '$ACTION_REF', not the $CALIBRATED_VERSION this script was calibrated against; any limit shown as a default may have moved upstream"
 fi
 echo
 
