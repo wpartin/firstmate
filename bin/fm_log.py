@@ -1214,7 +1214,7 @@ class Recall:
         for (rid,) in self.conn.execute("SELECT row FROM links WHERE kind=? AND name=? LIMIT 500", (kind, name)):
             rows[rid] = 1.0
         if kind != "task":
-            q = fts_query([name]) if " " not in name else '"%s"' % re.sub(r"[^\w]+", " ", name).strip()
+            q = '"%s"' % re.sub(r"[^\w]+", " ", name).strip()
             if q.strip('"'):
                 for (rid,) in self.conn.execute(
                         "SELECT rowid FROM rows_fts WHERE rows_fts MATCH ? ORDER BY rank LIMIT 300", (q,)):
