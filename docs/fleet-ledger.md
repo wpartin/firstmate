@@ -2,6 +2,7 @@
 
 The fleet activity ledger is an opt-in, append-only file that outside tools can read to follow what a firstmate home is doing: which tasks were dispatched, what their workers reported, when a PR became ready for review, when their work merged, and when they were cleaned up.
 It is the stable, documented hook for firstmate status; this page is its contract.
+The [captain's log](captains-log.md) is rendered from it.
 
 ## Turning it on and off
 
@@ -20,8 +21,8 @@ Every record carries these members:
 | ------- | --------------------------------------------------------- |
 | `v`     | Record format version, currently `1`                      |
 | `ts`    | Unix time in seconds when the record was written          |
-| `event` | One of the five event names below                         |
-| `task`  | The firstmate task id the record is about                 |
+| `event` | One of the event names below                              |
+| `task`  | The firstmate task id the record is about, or `null` for a record about no task |
 
 Readers must ignore members and events they do not recognize, so later versions can add them without breaking existing readers.
 
@@ -34,6 +35,11 @@ Readers must ignore members and events they do not recognize, so later versions 
 | `task.pr_ready`    | `pr`                                           | Firstmate records the task's PR as ready for review. |
 | `task.merged`      | `via` (`"pr"` or `"local"`), plus `pr` when `via` is `"pr"` | The task's PR merge is recorded, or its local-only branch landed. |
 | `task.cleaned_up`  | none                                           | The task's worker and local copy were removed. |
+| `captain.held`     | `reason`, `until`                              | A task is newly held for the captain; repeating an active hold writes none. |
+| `captain.answered` | `mode`, `source`, `words`                      | A new captain answer, release, repair, or reconciliation is recorded on a held task; a replay of a recorded answer writes none. |
+| `inbox.noted`      | `note`, `log_day`, `thread`, `text`            | A new captain inbox note is saved; `task` is the note's `task=` line or `null`. |
+| `inbox.replied`    | `note`, `text`                                 | Firstmate records its one reply to an inbox note. |
+| `learning.filed`   | `slug`, `title`                                | A durable learning is filed through the captain's log. |
 
 `task.dispatched` members: `kind` is `ship`, `scout`, or `secondmate`; `project` is the project directory name, or `null` for a remote second mate; `harness` names the agent tool; `model` is the requested model, or `null` for the tool's default.
 
@@ -43,6 +49,12 @@ It is written each time firstmate records a PR for the task, so registering a re
 `task.status` members: `state` is the status line's leading word, such as `working`, `needs-decision`, `blocked`, `paused`, `done`, `failed`, or `resolved`, or `null` when the line has none.
 `key` is the line's `[key=...]` decision key, or `null`.
 `text` is the status line after its first colon, verbatim, capped at 2000 characters; if the line has no colon, it is the whole line.
+
+`captain.held` members: `reason` is the hold reason, capped at 2000 characters; `until` is the `YYYY-MM-DD` deferral date or `null`.
+
+`captain.answered` members: `mode` is `answered`, `released`, `repaired`, or `reconciled`; `source` is the answering channel's provenance text, or `null` for a direct answer; `words` is the captain's answer (for a `reconciled` record, the reconciliation evidence), capped at 2000 characters.
+
+`inbox.noted` members: `note` is the note id; `log_day`, `thread` are the note body's `log_day=` and `thread=` lines, or `null`; `text` is the note body, capped at 2000 characters.
 
 Example:
 

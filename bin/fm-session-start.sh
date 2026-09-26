@@ -51,6 +51,9 @@
 #                       read-only, always runs.
 #   7. network checks - the result of the deferred network stage started back at
 #                       step 1, harvested WITHOUT waiting for it.
+#      Then, locked and only when config/log exists, one bounded captain's
+#                       log sync (FM_LOG_STARTUP_SECONDS, default 5) that prints
+#                       only today's note path (docs/captains-log.md).
 #   8. context digest - data/projects.md, data/secondmates.md, data/captain.md,
 #                       data/captain-shared.md, data/learnings.md: read-only,
 #                       always safe, always runs.
@@ -935,6 +938,18 @@ if [ "$READ_ONLY" -eq 1 ]; then
   printf 'has no action they would gate. The session holding the lock runs them.\n'
 else
   "$SCRIPT_DIR/fm-startup-network.sh" harvest --pid $$ 2>&1 || true
+fi
+
+# Captain's log (docs/captains-log.md): a locked start renders it once, bounded,
+# and prints only today's note path; the log is never startup memory.
+if [ "$READ_ONLY" -eq 0 ] && [ -f "$CONFIG/log" ] && [ -x "$SCRIPT_DIR/fm-log.sh" ]; then
+  LOG_NOTE=$(fm_run_timed "${FM_LOG_STARTUP_SECONDS:-5}" env FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
+    FM_DATA_OVERRIDE="$DATA" FM_CONFIG_OVERRIDE="$CONFIG" "$SCRIPT_DIR/fm-log.sh" sync 2>/dev/null) || LOG_NOTE=
+  if [ -n "$LOG_NOTE" ]; then
+    printf "\ncaptain's log: today's note is %s\n" "$LOG_NOTE"
+  else
+    printf "\ncaptain's log: not rendered this start; it catches up from the ledger at the next sync\n"
+  fi
 fi
 
 # --- 8. context digest -----------------------------------------------------

@@ -275,3 +275,92 @@ test_warnings_are_excluded_from_the_charted_next_count
 test_a_board_of_only_warnings_still_reports_nothing_queued
 test_omitted_warnings_never_count_as_more_queued
 test_an_omitted_kind_keeps_the_existing_queued_rendering
+
+# The board parity surfaces render from a `build --static` page, which needs no
+# Lavish session, so they are exercised without a listener.
+render_static() {  # <home> <payload-json> [scenario-json] [live 0|1]
+  local home=$1 payload=$2 scenario=${3:-[]} live=${4:-1}
+  printf '%s\n' "$payload" > "$home/payload.json"
+  printf '%s\n' "$scenario" > "$home/scenario.json"
+  FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
+    "$BOARD" build --static --out "$home/static.html" "$home/payload.json" >/dev/null \
+    || fail "the static board did not build"
+  BOARD_HARNESS_LIVE=$live node "$HARNESS" "$home/static.html" "$home/scenario.json" \
+    || fail "the static board could not be rendered"
+}
+
+PARITY_PAYLOAD='{"schema":"fm-bearings-board.v1","home":"h","generated":"2026-09-24T09:00Z","prs_live":false,
+ "captains_call":[{"key":"pick-colour","type":"decision","repo":"web","title":"Pick a colour","options":[],"allow_freeform":true}],
+ "underway":[{"id":"fix-login","kind":"ship","state":"working","repo":"web","name":"Fix login","doing":"writing tests",
+   "unlanded":{"branch":"fm/fix-login","head":"0123456789abcdef0123456789abcdef01234567","commits":2,"pr_url":"https://github.com/acme/web/pull/7"}}],
+ "landed":[],
+ "charted":[{"id":"q2","repo":"web","title":"Queued thing","reason":"","dispatchable":true},
+            {"id":"b1","repo":"web","title":"Blocked one","reason":"blocked by q2","dispatchable":false}]}'
+
+test_count_cards_filter_the_board() {
+  local home out
+  home=$(make_home filter-cards)
+  out=$(render_static "$home" "$PARITY_PAYLOAD" '[{"click":"stat","label":"underway"}]')
+  printf '%s' "$out" | jq -e '.error == "" and .filtered == true and .shown == ["underway"]
+    and ([.stats[] | select(.active) | .label] == ["underway"])
+    and ([.stats[] | select(.disabled) | .label] == ["landed recently"])' >/dev/null \
+    || fail "a count card did not filter the board to its section: $out"
+  out=$(render_static "$home" "$PARITY_PAYLOAD" '[{"click":"stat","label":"underway"},{"click":"stat","label":"underway"}]')
+  printf '%s' "$out" | jq -e '.filtered == false and .shown == []' >/dev/null \
+    || fail "selecting the active count card again did not show everything: $out"
+  pass "count cards filter the board to their section and toggle back"
+}
+
+test_row_options_queue_action_instructions() {
+  local home out
+  home=$(make_home row-options)
+  out=$(render_static "$home" "$PARITY_PAYLOAD" '[{"click":"options","section":"charted","row":0},{"pick":"dispatch"},{"submit":"modal"}]')
+  printf '%s' "$out" | jq -e '
+    ([.charted[] | .options] == [true, true]) and ([.underway[] | .options] == [true])
+    and (.prompts | length) == 1
+    and .prompts[0].data == {schema:"fm-bearings-answer.v1",question:"action.q2",selection:"dispatch",note:""}' >/dev/null \
+    || fail "a charted row did not queue its dispatch instruction: $out"
+  out=$(render_static "$home" "$PARITY_PAYLOAD" '[{"click":"options","section":"charted","row":1}]')
+  printf '%s' "$out" | jq -e '.modal.open == true and .modal.actions == ["forward","unblock","park","drop"]' >/dev/null \
+    || fail "a blocked row did not offer unblock without dispatch: $out"
+  out=$(render_static "$home" "$PARITY_PAYLOAD" '[{"click":"options","section":"underway","row":0},{"pick":"note"},{"submit":"modal"}]')
+  printf '%s' "$out" | jq -e '(.prompts | length) == 0 and .modal.open == true' >/dev/null \
+    || fail "an empty steer note was queued: $out"
+  pass "row options offer each row its actions and queue action.<task> instructions"
+}
+
+test_drop_states_exactly_what_it_discards() {
+  local home out
+  home=$(make_home drop-confirm)
+  out=$(render_static "$home" "$PARITY_PAYLOAD" '[{"click":"options","section":"underway","row":0},{"pick":"drop"},{"submit":"modal"}]')
+  printf '%s' "$out" | jq -e '
+    (.modal.confirm | contains("branch fm/fix-login at 0123456789ab (2 unlanded commits)"))
+    and (.modal.confirm | contains("open PR https://github.com/acme/web/pull/7"))
+    and (.prompts | length) == 0' >/dev/null \
+    || fail "a drop with unlanded work did not state the discard and wait for its confirmation: $out"
+  out=$(render_static "$home" "$PARITY_PAYLOAD" '[{"click":"options","section":"underway","row":0},{"pick":"drop"},{"tick":"discard"},{"note":"superseded"},{"submit":"modal"}]')
+  printf '%s' "$out" | jq -e '.prompts[0].data == {schema:"fm-bearings-answer.v1",question:"action.fix-login",selection:"drop",
+      note:"discard=fm/fix-login@0123456789abcdef0123456789abcdef01234567 pr=https://github.com/acme/web/pull/7 | superseded"}' >/dev/null \
+    || fail "a confirmed drop did not name exactly the discarded branch, head, and PR: $out"
+  out=$(render_static "$home" "$PARITY_PAYLOAD" '[{"click":"options","section":"charted","row":0},{"pick":"drop"},{"submit":"modal"}]')
+  printf '%s' "$out" | jq -e '.modal.confirm == "" and .prompts[0].data.selection == "drop" and .prompts[0].data.note == ""' >/dev/null \
+    || fail "a drop with nothing unlanded asked for a discard confirmation: $out"
+  pass "drop states exactly what it discards, and sends only after that is confirmed"
+}
+
+test_static_copy_is_read_only() {
+  local home out
+  home=$(make_home static-copy)
+  printf 'https://lavish.example/session/abc\n' > "$home/state/.log-board-url"
+  out=$(render_static "$home" "$PARITY_PAYLOAD" '[]' 0)
+  printf '%s' "$out" | jq -e '.error == "" and (.staticBanner | contains("read-only copy"))
+    and (.staticBanner | contains("Open the live board")) and .enabledControls == 0
+    and .disabledControls > 0' >/dev/null \
+    || fail "the static copy left a control enabled or did not point at the live board: $out"
+  pass "a static copy disables every control and points at the live board"
+}
+
+test_count_cards_filter_the_board
+test_row_options_queue_action_instructions
+test_drop_states_exactly_what_it_discards
+test_static_copy_is_read_only

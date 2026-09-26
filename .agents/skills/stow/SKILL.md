@@ -218,6 +218,7 @@ A local skill exists only in this home, so offloading an entry out of `data/capt
 3. **Write within the existing boundaries.**
    - Captain preferences and fleet-local operational facts belong in the destination selected by AGENTS.md after the required whole-file curation pass.
      Create `data/learnings.md` only for a genuinely new local learning with no stronger owner.
+     When this home has the captain's log on (`config/log` present and not `off`), also mirror each newly added learning with `bin/fm-log.sh learn <slug> <title>` (the entry on stdin); `data/learnings.md` stays the curated, budgeted source.
    - In a primary home, curate shared captain preferences only under the existing primary-authoritative shared-preference contract.
      In a secondmate home, route a newly discovered shared preference to the main firstmate through marked status or a document pointer instead of editing the inherited file.
    - Project-intrinsic knowledge never goes directly into a project's `AGENTS.md`.

@@ -276,7 +276,7 @@ extension_lifecycle_lock_acquire() {
   state_root_bind create || return 1
   (umask 077; mkdir -p "$REG") || return 1
   [ -d "$REG" ] && [ ! -L "$REG" ] || return 1
-  fm_lock_acquire_wait "$EXTENSION_LIFECYCLE_LOCK"
+  fm_lock_acquire_wait "$EXTENSION_LIFECYCLE_LOCK" || exit 1
 }
 
 extension_lifecycle_lock_release() {

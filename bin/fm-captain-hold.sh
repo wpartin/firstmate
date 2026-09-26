@@ -227,6 +227,23 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 # shellcheck disable=SC1091
 . "$SCRIPT_DIR/fm-parent-channel-lib.sh"
 
+# Record a hold or a new answer on the opt-in fleet activity ledger
+# (docs/fleet-ledger.md); the captain's log renders its decisions from these.
+# A ledger failure never changes this command's outcome.
+ledger_record() {  # <fm-fleet-ledger.sh args...>
+  local config=${FM_CONFIG_OVERRIDE:-$FM_HOME/config}
+  [ -e "$config/fleet-ledger" ] || return 0
+  FM_HOME=$FM_HOME FM_STATE_OVERRIDE=$STATE FM_CONFIG_OVERRIDE=$config \
+    "$SCRIPT_DIR/fm-fleet-ledger.sh" "$@" >/dev/null 2>&1 || true
+}
+
+# The captain's own words for the ledger: the `answers` intake passes the bare
+# answer through FM_CAPTAIN_ANSWER_WORDS; a direct answer is its decision file.
+ledger_answered() {  # <task-id> <mode>
+  ledger_record answered "$1" "$2" "${FM_CAPTAIN_ANSWER_SOURCE:-}" \
+    "${FM_CAPTAIN_ANSWER_WORDS:-$DECISION_TEXT}"
+}
+
 PARENT_HOLD_PUBLISHED=0
 publish_parent_hold() {  # <task-id> <occurrence> <verb> <note>
   local id=$1 occurrence=$2 verb=$3 note=$4 rc=0
@@ -285,7 +302,8 @@ validate_one_line() {  # <label> <value>
 
 acquire_task_control_lock() {  # <task-id>
   CAPTAIN_CONTROL_LOCK="$STATE/.control-$1.lock"
-  fm_lock_acquire_wait "$CAPTAIN_CONTROL_LOCK"
+  fm_lock_acquire_wait "$CAPTAIN_CONTROL_LOCK" \
+    || fail "cannot take the task control lock $CAPTAIN_CONTROL_LOCK: this home's state directory $STATE cannot be written"
   CAPTAIN_CONTROL_LOCK_HELD=1
 }
 
@@ -904,6 +922,7 @@ command_hold() {
   [ -n "$(body_hold_set_timestamp "$(show_field_value "$show" body)")" ] \
     || fail "task $id lost its hold-set stamp while being held"
   publish_parent_hold "$id" "$occurrence" needs-decision "$reason"
+  [ "$preserve_hold_set" = 1 ] || ledger_record held "$id" "$reason" "$until"
   printf '%s\n' "$id"
 }
 
@@ -1053,6 +1072,7 @@ command_answer() {
     body_has_resolution_record "$(show_field "$show" body)" \
       || fail "captain-held task $id did not retain its durable resolution record"
     publish_parent_resolution_then_retire "$id" "$occurrence" "answered (repaired)"
+    ledger_answered "$id" repaired
     printf 'repaired: %s\n' "$id"
     return 0
   fi
@@ -1090,6 +1110,7 @@ command_answer() {
     body_has_resolution_record "$(show_field "$show" body)" \
       || fail "captain-held task $id did not retain its durable resolution record"
     publish_parent_resolution_then_retire "$id" "$occurrence" "$outcome"
+    ledger_answered "$id" "$outcome"
     printf '%s: %s\n' "$outcome" "$id"
     return 0
   fi
@@ -1330,7 +1351,8 @@ command_answers() {
       continue
     fi
     # shellcheck disable=SC2086  # release_flag is empty or a single literal flag.
-    if "$0" answer "$id" --decision-file "$tmp" $release_flag </dev/null >/dev/null 2>"$err"; then
+    if FM_CAPTAIN_ANSWER_SOURCE=$source FM_CAPTAIN_ANSWER_WORDS=$answer \
+      "$0" answer "$id" --decision-file "$tmp" $release_flag </dev/null >/dev/null 2>"$err"; then
       # A parent-channel delivery problem is reported on stderr by the answer
       # path even when the close succeeded; keep it visible.
       [ ! -s "$err" ] || cat "$err" >&2
@@ -1499,7 +1521,7 @@ reconcile_list() {
 # The moot outcome. The evidence is what closes the call, and the `reconciled`
 # resolution mode is what keeps the record from claiming the captain answered.
 reconcile_close() {
-  local id=${1:-} evidence_file='' show state hold_kind body occurrence recorded_mode
+  local id=${1:-} evidence_file='' show state hold_kind body occurrence recorded_mode reconciled_new=0
   [ "$#" -ge 1 ] || { usage >&2; exit 2; }
   shift
   while [ "$#" -gt 0 ]; do
@@ -1549,6 +1571,7 @@ reconcile_close() {
     occurrence=$(resolution_record_count "$body")
   else
     write_resolution_record "$id" reconciled "$body"
+    reconciled_new=1
   fi
   close_answered "$id" 0 || fail "could not close reconciled captain-held task $id"
   remove_interrupted_answer_stamp "$id"
@@ -1559,6 +1582,7 @@ reconcile_close() {
   [ "$PARENT_HOLD_PUBLISHED" = 1 ] \
     || fail "could not publish the reconciled captain-held task $id to its parent"
   reconcile_request_retire "$id"
+  [ "$reconciled_new" != 1 ] || ledger_answered "$id" reconciled
   printf 'reconciled: %s\n' "$id"
 }
 
@@ -1630,7 +1654,7 @@ command_complete() {
   [ -f "$meta" ] && has_meta=1
   if [ "$has_meta" = 1 ]; then
     CAPTAIN_META_LOCK=$(fm_meta_lock_path "$meta") || fail "could not resolve task metadata lock"
-    fm_lock_acquire_wait "$CAPTAIN_META_LOCK"
+    fm_lock_acquire_wait "$CAPTAIN_META_LOCK" || exit 1
     CAPTAIN_META_LOCK_HELD=1
     [ -f "$meta" ] || fail "task metadata disappeared while recording completion"
   fi

@@ -2756,3 +2756,23 @@ test_agents_baseline_requires_sha256_and_successful_completion
 test_reemit_keeps_repair_ownership_with_the_lock_holder
 
 echo "# fm-session-start.test.sh: all assertions passed"
+
+# A locked start renders the captain's log once and prints only today's note path.
+test_captains_log_note_path_is_printed_when_enabled() {
+  local rec root home fakebin out
+  rec=$(new_world captains-log)
+  IFS='|' read -r root home fakebin <<EOF2
+$rec
+EOF2
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+  assert_not_contains "$out" "captain's log:" "a home without config/log mentioned the log"
+  printf 'on\n' > "$home/config/log"
+  : > "$home/config/fleet-ledger"
+  out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+  assert_contains "$out" "captain's log: today's note is $home/data/log/" "digest did not print today's note path"
+  [ -n "$(find "$home/data/log" -name "$(date +%Y-%m-%d).md")" ] || fail "session start did not render today's note"
+  pass "a locked session start renders the captain's log and prints today's note path"
+}
+test_captains_log_note_path_is_printed_when_enabled

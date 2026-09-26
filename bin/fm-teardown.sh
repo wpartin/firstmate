@@ -161,10 +161,15 @@
 # leased home releases its durable treehouse lease so the pool slot is freed,
 # never left leased forever. If the treehouse return fails, teardown leaves the
 # leased home and state in place instead of hiding a still-held lease.
-# Usage: fm-teardown.sh <task-id> [--force] [--legacy-record]
+# Usage: fm-teardown.sh <task-id> [--force | --discard-named <branch>@<sha>] [--legacy-record]
 #   --force skips ordinary-task dirty and landed-work checks, skips scout report
 #   checks, and discards secondmate child work for kind=secondmate. Only use it
 #   when the captain has explicitly said to discard the work.
+#   --discard-named is the narrow discard a captain's board "drop" names: it
+#   lifts only the ordinary-task unlanded-COMMITS refusal, and only while the
+#   worktree is on exactly <branch> at exactly commit <sha>. Uncommitted
+#   changes, a different branch or head, and every other refusal still refuse,
+#   because the click did not name them.
 #   --legacy-record accepts a task record that predates the spawn_gen field:
 #   teardown then proceeds only when the recorded endpoint is confirmed dead or
 #   agent-less (bin/fm-backend.sh's recovery-grade classifier), and without
@@ -319,11 +324,19 @@ if [ "$#" -lt 1 ] || ! fm_task_id_path_safe "$1"; then
 fi
 ID=$1
 FORCE=
+DISCARD_NAMED=
 LEGACY_RECORD_GIVEN=0
 shift
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --force) FORCE=--force ;;
+    --discard-named)
+      shift
+      case "${1:-}" in
+        ?*@[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]*) DISCARD_NAMED=$1 ;;
+        *) echo "error: --discard-named needs <branch>@<commit-sha>" >&2; exit 2 ;;
+      esac
+      ;;
     --legacy-record) LEGACY_RECORD_GIVEN=1 ;;
     *)
       echo "error: invalid teardown request" >&2
@@ -446,7 +459,7 @@ fm_backlog_record_present "$META" "task record" "$STATE" || {
   exit 1
 }
 META_LOCK=$(fm_meta_lock_path "$META") || exit 1
-fm_lock_acquire_wait "$META_LOCK"
+fm_lock_acquire_wait "$META_LOCK" || exit 1
 META_LOCK_HELD=1
 fm_backlog_record_present "$META" "task record" "$STATE" || {
   echo "error: teardown refused after locking: $FM_BACKLOG_TRANSITION_ERROR" >&2
@@ -1834,6 +1847,16 @@ validate_worktree_teardown_safety() {
       return 1
     fi
     unmerged=$(printf '%s\n' "$unmerged_raw" | head -5)
+    if [ -z "$dirty" ] && [ -n "$unmerged" ] && [ -n "$DISCARD_NAMED" ]; then
+      branch=$(git -C "$WT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)
+      if [ "$branch@$(git -C "$WT" rev-parse HEAD 2>/dev/null)" = "$DISCARD_NAMED" ]; then
+        echo "discarding the named unlanded commits on $branch as the captain's drop authorized" >&2
+        return 0
+      fi
+      echo "REFUSED: the discard named $DISCARD_NAMED, but worktree $WT is on $branch at $(git -C "$WT" rev-parse --short HEAD 2>/dev/null || echo unknown)." >&2
+      echo "The work changed after the captain's drop was chosen; show the captain what would now be discarded." >&2
+      return 1
+    fi
     if [ -n "$dirty" ] || [ -n "$unmerged" ]; then
       echo "REFUSED: local-only worktree $WT has work not yet merged into $DEFAULT and not on any remote." >&2
       [ -n "$dirty" ] && echo "uncommitted changes present" >&2
@@ -1851,6 +1874,15 @@ validate_worktree_teardown_safety() {
     if [ -z "$branch" ]; then
       branch=$(git -C "$WT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)
       TEARDOWN_WORKTREE_BRANCH_FOR_SAFETY=$branch
+    fi
+    if [ -n "$DISCARD_NAMED" ]; then
+      if [ "$branch@$(git -C "$WT" rev-parse HEAD 2>/dev/null)" = "$DISCARD_NAMED" ]; then
+        echo "discarding the named unlanded commits on $branch as the captain's drop authorized" >&2
+        return 0
+      fi
+      echo "REFUSED: the discard named $DISCARD_NAMED, but worktree $WT is on $branch at $(git -C "$WT" rev-parse --short HEAD 2>/dev/null || echo unknown)." >&2
+      echo "The work changed after the captain's drop was chosen; show the captain what would now be discarded." >&2
+      return 1
     fi
     if ! work_is_landed "$branch"; then
       echo "REFUSED: worktree $WT has work not on any remote and not landed." >&2

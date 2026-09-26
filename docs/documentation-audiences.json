@@ -133,6 +133,10 @@
       "audience": "agent-runtime"
     },
     {
+      "path": ".agents/skills/captains-log/SKILL.md",
+      "audience": "agent-runtime"
+    },
+    {
       "path": ".agents/skills/decision-hold-lifecycle/SKILL.md",
       "audience": "agent-runtime"
     },
@@ -327,6 +331,10 @@
     {
       "path": "docs/captain-hold-lifecycle.md",
       "audience": "maintainer-architecture"
+    },
+    {
+      "path": "docs/captains-log.md",
+      "audience": "operator-current"
     },
     {
       "path": "docs/documentation-audiences.md",

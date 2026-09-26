@@ -50,7 +50,19 @@ fm_pid_alive() {
   case "$pid" in
     ''|*[!0-9]*) return 1 ;;
   esac
-  kill -0 "$pid" 2>/dev/null
+  local err
+  err=$(kill -0 "$pid" 2>&1) && return 0
+  # A sandbox or another user's process makes kill -0 fail with EPERM although
+  # the process exists; reading that as "dead" lets a second process steal a
+  # live lock. Only a permission refusal falls back to ps, so an ordinary
+  # "no such process" answer stays a fast dead verdict.
+  case "$err" in
+    *[Pp]ermitted*|*[Pp]ermission*)
+      ps -p "$pid" -o pid= >/dev/null 2>&1
+      return
+      ;;
+  esac
+  return 1
 }
 
 fm_pid_identity() {
@@ -940,9 +952,24 @@ fm_lock_try_acquire() {
   FM_LOCK_HELD_PID=
   FM_LOCK_OWNER_DIR=
   FM_LOCK_RECOVERED_PID=
+  FM_LOCK_UNCREATABLE=
 
   if fm_lock_try_create "$lockdir"; then
     return 0
+  fi
+
+  # A failed create that leaves no lock path behind means the lock location
+  # itself cannot be created (an unwritable state directory, for example), not
+  # that a holder exists; stealing from an absent lock would recurse through
+  # ever-longer .steal paths forever. One retry absorbs a lock path that
+  # changed under the first create.
+  if [ ! -e "$lockdir" ] && [ ! -L "$lockdir" ]; then
+    fm_lock_try_create "$lockdir" && return 0
+  fi
+  if [ ! -e "$lockdir" ] && [ ! -L "$lockdir" ]; then
+    FM_LOCK_HELD_PID=
+    FM_LOCK_UNCREATABLE=1
+    return 1
   fi
 
   fm_current_pid current || return 1
@@ -973,6 +1000,14 @@ fm_lock_try_acquire() {
   fi
 
   steal="$lockdir.steal"
+  # Recovery of a stale steal lock recurses at most two levels, which covers a
+  # stealer that itself died mid-steal; deeper chains refuse rather than grow.
+  case "$lockdir" in
+    *.steal.steal.steal)
+      FM_LOCK_HELD_PID=$pid
+      return 1
+      ;;
+  esac
   if ! fm_lock_try_acquire "$steal"; then
     FM_LOCK_HELD_PID=$(cat "$lockdir/pid" 2>/dev/null || true)
     FM_LOCK_OWNER_DIR=
@@ -1035,9 +1070,25 @@ fm_lock_try_acquire() {
   return "$rc"
 }
 
+# fm_lock_acquire_wait <lockdir>
+#
+# Waits for a live holder indefinitely, but returns 3 once the lock location
+# has stayed uncreatable (FM_LOCK_UNCREATABLE) for FM_LOCK_UNCREATABLE_TRIES
+# consecutive attempts (default 30, about three seconds), so a home whose state
+# directory cannot be written fails with a clear error instead of hanging.
 fm_lock_acquire_wait() {
-  local lockdir=$1
+  local lockdir=$1 misses=0 limit=${FM_LOCK_UNCREATABLE_TRIES:-30}
+  case "$limit" in ''|*[!0-9]*|0) limit=30 ;; esac
   while ! fm_lock_try_acquire "$lockdir"; do
+    if [ "${FM_LOCK_UNCREATABLE:-}" = 1 ]; then
+      misses=$((misses + 1))
+      if [ "$misses" -ge "$limit" ]; then
+        printf 'error: cannot create lock %s: its directory is not writable\n' "$lockdir" >&2
+        return 3
+      fi
+    else
+      misses=0
+    fi
     sleep 0.1
   done
 }
@@ -1827,7 +1878,7 @@ fm_wake_clean_field() {
 
 fm_wake_append() {
   local status=0
-  fm_lock_acquire_wait "$FM_WAKE_QUEUE_LOCK"
+  fm_lock_acquire_wait "$FM_WAKE_QUEUE_LOCK" || return 1
   fm_wake_append_locked "$@" || status=$?
   fm_lock_release "$FM_WAKE_QUEUE_LOCK"
   return "$status"
@@ -1881,7 +1932,7 @@ fm_wake_queued_keys() {
     signal|stale|check|heartbeat) ;;
     *) printf 'fm_wake_queued_keys: invalid wake kind: %s\n' "$kind" >&2; return 2 ;;
   esac
-  fm_lock_acquire_wait "$FM_WAKE_QUEUE_LOCK"
+  fm_lock_acquire_wait "$FM_WAKE_QUEUE_LOCK" || return 1
   fm_wake_queued_keys_locked "$kind"
   fm_lock_release "$FM_WAKE_QUEUE_LOCK"
 }
