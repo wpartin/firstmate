@@ -1078,6 +1078,10 @@ fm_lock_try_acquire() {
   if ! fm_lock_try_acquire_steal_mutex "$steal"; then
     FM_LOCK_HELD_PID=$(cat "$lockdir/pid" 2>/dev/null || true)
     FM_LOCK_OWNER_DIR=
+    # A steal mutex that cannot be created at all means the lock directory is unwritable, so the bounded wait must see it.
+    if [ ! -e "$steal" ] && [ ! -L "$steal" ]; then
+      FM_LOCK_UNCREATABLE=1
+    fi
     return 1
   fi
   steal_owner=${FM_LOCK_OWNER_DIR:-}
