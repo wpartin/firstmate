@@ -27,10 +27,12 @@
 #                                  render new ledger records from state/.log-cursor,
 #                                  recompute today's board link and Open at close,
 #                                  regenerate queue.md, and print today's note path.
-#                                  --quiet prints nothing, never fails the caller
-#                                  (exit 0), and gives up after --wait seconds
-#                                  (default 2) when another sync holds the lock.
-#   fm-log.sh today                sync, then print today's note path
+#                                  --quiet prints nothing and never fails the caller
+#                                  (exit 0). --wait bounds how long either form waits
+#                                  when another sync holds the lock (default 2 seconds
+#                                  with --quiet, 10 without).
+#   fm-log.sh today [--wait <seconds>]
+#                                  sync, then print today's note path
 #   fm-log.sh add <worked|open|carried|asked> <text>
 #                                  manual escape hatch: one bullet in today's note
 #   fm-log.sh ticket <ID> <text>   manual dated line in tickets/<ID>.md
@@ -241,7 +243,7 @@ case "$cmd" in
     ;;
   sync|today)
     quiet=0
-    wait=2
+    wait=
     while [ "$#" -gt 0 ]; do
       case "$1" in
         --quiet) [ "$cmd" = sync ] || usage; quiet=1 ;;
@@ -250,7 +252,9 @@ case "$cmd" in
       esac
       shift
     done
-    [ "$quiet" = 1 ] || wait=10
+    if [ -z "$wait" ]; then
+      if [ "$quiet" = 1 ]; then wait=2; else wait=10; fi
+    fi
     do_sync "$quiet" "$wait"
     ;;
   add)

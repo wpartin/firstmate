@@ -302,6 +302,27 @@ test_enable_turns_on_the_ledger_and_lays_out_the_log() {
   pass "enable turns on the ledger, lays out the log, and warns about a location outside the home"
 }
 
+
+test_wait_bounds_a_non_quiet_sync() {
+  local home holder start elapsed rc i
+  home=$(make_home wait-bound)
+  snapshot "$home"
+  FM_STATE_OVERRIDE="$home/state" bash -c '. "$1"; fm_lock_try_acquire "$2" || exit 1; : > "$3"; sleep 30' \
+    _ "$ROOT/bin/fm-wake-lib.sh" "$home/state/.log.lock" "$home/held" &
+  holder=$!
+  i=0
+  while [ ! -e "$home/held" ] && [ "$i" -lt 50 ]; do sleep 0.1; i=$((i + 1)); done
+  [ -e "$home/held" ] || { kill "$holder" 2>/dev/null; fail "the fixture could not hold the log lock"; }
+  start=$(date +%s)
+  run_log "$home" sync --wait 1 >/dev/null 2>"$home/wait.err"; rc=$?
+  elapsed=$(( $(date +%s) - start ))
+  kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
+  assert_equals 1 "$rc" "a sync that cannot take the lock"
+  has "$(cat "$home/wait.err")" "another log sync is running"
+  [ "$elapsed" -lt 6 ] || fail "sync --wait 1 waited ${elapsed}s for a held lock"
+  pass "--wait bounds a non-quiet sync's wait for a held lock"
+}
+
 test_events_render_golden_day_note_and_replay_is_a_noop
 test_queue_view_renders_from_the_snapshot
 test_log_never_reads_the_backlog_file
@@ -312,3 +333,4 @@ test_no_ticket_patterns_means_no_ticket_links
 test_manual_add_learn_and_unresolved
 test_off_unreachable_and_foreign_owner_refuse
 test_enable_turns_on_the_ledger_and_lays_out_the_log
+test_wait_bounds_a_non_quiet_sync
