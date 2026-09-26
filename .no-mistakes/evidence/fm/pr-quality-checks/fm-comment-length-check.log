@@ -1,0 +1,17 @@
+ok - fm-comment-length-check: a clean branch exits 0 and prints nothing
+ok - fm-comment-length-check: a two-line inline run is reported with file and line
+ok - fm-comment-length-check: a multi-line JSDoc block is one reported run
+ok - fm-comment-length-check: a pre-existing run in a touched file is left alone
+ok - fm-comment-length-check: an unhandled file type is named on stderr, not measured
+ok - fm-comment-length-check: consecutive trailing comments are not a multi-line run
+ok - fm-comment-length-check: a blank line ends a run
+ok - fm-comment-length-check: comment syntax inside strings, regexes and templates is ignored
+ok - fm-comment-length-check: an apostrophe in JSX prose recovers instead of failing
+ok - fm-comment-length-check: consecutive YAML comment lines are reported
+ok - fm-comment-length-check: YAML block scalar content is not read as comments
+ok - fm-comment-length-check: an unlexable file exits 2 instead of reporting a pass
+ok - fm-comment-length-check: every run is named in a single pass
+ok - fm-comment-length-check: an unresolvable ref exits 2
+ok - fm-comment-length-check: usage errors exit 2 with a named reason
+ok - fm-comment-length-check: --print-scope is the machine-readable owner of the language scope
+ok - fm-comment-length-check: --help states the rule and the language boundary

@@ -1,0 +1,35 @@
+ok - fm-pr-quality-check: bash -n succeeds
+ok - fm-pr-quality-check: --help documents what it approximates
+ok - fm-pr-quality-check: a clean branch and body pass with every rule measured
+ok - fm-pr-quality-check: every rule prints its measured number against its limit
+ok - fm-pr-quality-check: a changed-line breach is named
+ok - fm-pr-quality-check: a changed-file breach is named
+ok - fm-pr-quality-check: a description-length breach is named
+ok - fm-pr-quality-check: an empty description is named
+ok - fm-pr-quality-check: an emoji breach is named
+ok - fm-pr-quality-check: the emoji rule counts the title, and says so when it has none
+ok - fm-pr-quality-check: a blocked term is named
+ok - fm-pr-quality-check: a blocked term inside an HTML comment is not a breach
+ok - fm-pr-quality-check: a code-reference breach is named
+ok - fm-pr-quality-check: a blocked-path breach is named
+ok - fm-pr-quality-check: a file matching two blocked patterns counts once
+ok - fm-pr-quality-check: every simultaneous breach is named in one run
+ok - fm-pr-quality-check: a project with no such check is reported as not applicable
+ok - fm-pr-quality-check: a project with no workflows at all is not applicable
+ok - fm-pr-quality-check: a home with no configured action is not applicable
+ok - fm-pr-quality-check: --action overrides the configured action
+ok - fm-pr-quality-check: an unparseable limit fails closed
+ok - fm-pr-quality-check: an unparseable workflow fails closed
+ok - fm-pr-quality-check: a limit given as a template expression fails closed
+ok - fm-pr-quality-check: more than one configured step fails closed
+ok - fm-pr-quality-check: limits are read from the project rather than hardcoded
+ok - fm-pr-quality-check: unset inputs fall back to labeled action defaults
+ok - fm-pr-quality-check: an unfamiliar action version warns but still measures
+ok - fm-pr-quality-check: a rule it cannot measure is reported, never treated as passing
+ok - fm-pr-quality-check: bad usage is refused rather than measured around
+ok - fm-pr-quality-check: --print-limits is machine readable for both outcomes
+ok - fm-pr-quality-check: an oversized commit message is named as a breach
+ok - fm-pr-quality-check: a commit message exactly at the limit passes
+ok - fm-pr-quality-check: only the commits this branch adds are measured
+ok - fm-pr-quality-check: the commit-message rule is skipped, not assumed, without a base ref
+ok - fm-pr-quality-check: a commit-message limit of 0 disables the rule

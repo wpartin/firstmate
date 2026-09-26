@@ -1,0 +1,14 @@
+ok - fm-commit-trailer-check: a clean range passes and leaves a human co-author alone
+ok - fm-commit-trailer-check: the co-author and session trailers are reported as separate classes
+ok - fm-commit-trailer-check: human co-authors are left alone
+ok - fm-commit-trailer-check: only the commits this branch adds are examined
+ok - fm-commit-trailer-check: --message detects without modifying the file
+ok - fm-commit-trailer-check: --strip removes only the offending trailers
+ok - fm-commit-trailer-check: git's commented instruction lines are ignored
+ok - fm-commit-trailer-check: --strip is refused on a committed range
+ok - fm-commit-trailer-check: usage errors exit 2 with a named reason
+removed AI attribution trailers from the commit message:
+  (coauthor)  Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+  (session)  Claude-Session: https://claude.ai/code/session_xyz
+ok - fm-commit-msg-hook: an installed hook keeps both trailers out of the commit
+ok - fm-commit-msg-hook: it refuses rather than silently passing when called wrong
