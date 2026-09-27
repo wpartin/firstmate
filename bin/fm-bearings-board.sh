@@ -453,6 +453,8 @@ attach_entities() {  # <payload.json>
 # (bin/fm-log.sh reads it). It is written only once the session is proved open
 # and cleared whenever the session is found ended, so the link is never stale.
 
+LAVISH_LIST_SECONDS=${FM_BEARINGS_LAVISH_LIST_SECONDS:-5}
+
 board_url_file() { printf '%s/.log-board-url\n' "${FM_STATE_OVERRIDE:-$FM_HOME/state}"; }
 
 # The session URL the server lists open for <canonical-board-path>, or nothing.
@@ -492,7 +494,7 @@ forget_ended_board_url() {
   [ -f "$file" ] || return 0
   command -v lavish-axi >/dev/null 2>&1 || return 0
   IFS= read -r url < "$file" || true
-  listing=$(lavish-axi 2>/dev/null) || return 0
+  listing=$(perl -e 'alarm shift; exec @ARGV or exit 127' "$LAVISH_LIST_SECONDS" lavish-axi 2>/dev/null) || return 0
   if [ -z "$url" ] || ! printf '%s\n' "$listing" | grep -qF ",open,\"$url\""; then
     clear_board_url
   fi
