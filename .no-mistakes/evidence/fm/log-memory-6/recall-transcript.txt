@@ -1,0 +1,38 @@
+$ fm-log.sh learn settlement-timing Settlement timing --ticket eng-77 --project payments
+/var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.pBgk5agPL6/data/log/learnings/settlement-timing.md
+
+$ fm-log.sh sync
+/var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.pBgk5agPL6/data/log/2026/09/27/2026-09-27.md
+
+$ fm-log.sh recall --ticket ENG-77 --for brief
+query: --ticket ENG-77
+resolved: ticket ENG-77
+entities[1]{kind,name,first,last,touches}:
+  ticket,ENG-77,2026-09-27,2026-09-27,1
+learnings[1]{slug,title,filed}:
+  settlement-timing,Settlement timing,2026-09-27
+
+$ fm-log.sh recall --project payments --for brief
+query: --project payments
+resolved: project payments
+entities[1]{kind,name,first,last,touches}:
+  project,payments,2026-09-27,2026-09-27,1
+learnings[1]{slug,title,filed}:
+  settlement-timing,Settlement timing,2026-09-27
+
+$ fm-log.sh learn settlement-timing Settlement timing --ticket eng-78
+/var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.pBgk5agPL6/data/log/learnings/settlement-timing.md
+
+$ fm-log.sh sync
+/var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.pBgk5agPL6/data/log/2026/09/27/2026-09-27.md
+
+$ fm-log.sh recall --ticket ENG-78 --for brief
+query: --ticket ENG-78
+resolved: ticket ENG-78
+entities[1]{kind,name,first,last,touches}:
+  ticket,ENG-78,2026-09-27,2026-09-27,1
+learnings[1]{slug,title,filed}:
+  settlement-timing,Settlement timing,2026-09-27
+
+$ fm-log.sh recall --ticket ENG-77 --for brief
+

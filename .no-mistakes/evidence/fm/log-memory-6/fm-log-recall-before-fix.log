@@ -13,7 +13,14 @@ ok - --for brief drops paths and private text and never fails its caller
 ok - --for captain keeps one cite per group
 ok - a failed index update leaves a marker that recall reports
 ok - recall and index exit 3 silently when the log is off
-ok - a 50k-record ledger answers an exact ticket in 66 ms
+ok - a 50k-record ledger answers an exact ticket in 64 ms
 ok - the entity export dates each entity by its newest touch across tasks
 ok - a learning filed against a ticket, project, or task comes back for them and fans out to their notes
-ok - a learning comes back for every task it names, and re-filing replaces stale sources
+not ok - the stale ticket no longer recalls it (unexpected: 'Settlement timing')
+--- output ---
+query: --ticket ENG-77
+resolved: ticket ENG-77
+entities[1]{kind,name,first,last,touches}:
+  ticket,ENG-77,2026-09-27,2026-09-27,1
+learnings[1]{slug,title,filed}:
+  settlement-timing,Settlement timing,2026-09-27
