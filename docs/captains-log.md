@@ -115,11 +115,13 @@ Firstmate sees relevant history at the moments it acts, without having to rememb
 - **Worker instructions:** `bin/fm-brief.sh` recalls the task's tickets, people, project, and id in the worker form and writes at most 15 lines under `## Relevant history`, after `## Firstmate spec` and labelled as firstmate-supplied context, never as the captain's intent.
   Nothing is written when the history is empty, the log is off, or recall fails, and the scaffold never fails because of it.
 - **Filing work:** after a successful `bin/fm-tasks-axi.sh add`, a `RELATED:` pack follows when the item has a ticket or person field or its title names a known ticket, person, or project; it is silent otherwise, when the log is off, and with `--json`.
+- **Session start:** the startup digest prints a `RECENT THREADS` block after today's note path, from `bin/fm-log.sh recall --recent --limit 8 --for threads`: captain decisions still open from before today with their last touch, then the 5 most recently touched tickets and projects.
+  It is at most 10 lines and 1 KB, prints nothing when the log is off or its index is empty, stale, or unreadable, and never delays or fails the digest; `bin/fm-startup-memory-budget.sh report` shows it on a separate informational line outside the startup-memory budget.
 - **Questions about the past and bug scoping:** the `captains-log` and `diagnostic-reasoning` skills run recall before answering or diagnosing.
 
 ## When it renders
 
-- At session start, as part of the startup digest, which prints today's note path.
+- At session start, as part of the startup digest, which prints today's note path and the `RECENT THREADS` block.
 - After each turn, bounded to a couple of seconds and never blocking supervision.
 - On demand with `bin/fm-log.sh sync`.
 

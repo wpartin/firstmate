@@ -2782,6 +2782,33 @@ EOF2
   assert_contains "$out" "captain's log: today's note is $home/data/log/" "digest did not print today's note path"
   assert_present "$home/config/fleet-ledger" "the default log did not turn on the ledger"
   [ -n "$(find "$home/data/log" -name "$(date +%Y-%m-%d).md")" ] || fail "session start did not render today's note"
+  assert_not_contains "$out" "RECENT THREADS" "an empty log index printed a RECENT THREADS block"
   pass "a locked session start logs by default, prints today's note path, and off writes nothing"
 }
 test_captains_log_note_path_is_printed_when_enabled
+
+# RECENT THREADS stays within 10 lines however many projects the log touched recently.
+test_recent_threads_block_is_bounded() {
+  local rec root home fakebin out now i block
+  rec=$(new_world recent-threads)
+  IFS='|' read -r root home fakebin <<EOF2
+$rec
+EOF2
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  now=$(date +%s)
+  : > "$home/config/fleet-ledger"
+  for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+    printf '{"v":1,"ts":%s,"event":"task.dispatched","task":"t%s","kind":"ship","project":"proj%s","harness":"claude","model":null}\n' \
+      "$((now - 600 + i))" "$i" "$i" >> "$home/state/fleet-ledger.jsonl"
+  done
+  out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+  assert_contains "$out" "RECENT THREADS" "a populated log printed no RECENT THREADS block"
+  assert_contains "$out" "project proj12, last touch" "the newest project was missing"
+  block=$(printf '%s\n' "$out" | awk '/^RECENT THREADS/ { on = 1 } on && /^$/ { exit } on')
+  [ "$(printf '%s\n' "$block" | wc -l)" -le 10 ] || fail "RECENT THREADS exceeded 10 lines: $block"
+  [ "$(printf '%s' "$block" | wc -c)" -le 1024 ] || fail "RECENT THREADS exceeded 1 KB"
+  assert_not_contains "$block" "proj7," "more than 5 touched entities were shown"
+  pass "RECENT THREADS shows the most recent touches within 10 lines and 1 KB"
+}
+test_recent_threads_block_is_bounded

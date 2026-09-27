@@ -372,7 +372,33 @@ EOF
   pass "a 50k-record ledger answers an exact ticket in ${best} ms"
 }
 
+test_recent_threads_view() {
+  local home out empty
+  home=$(make_home threads)
+  fixture "$home"
+  out=$(run_log "$home" recall --recent --limit 8 --for threads) || fail "threads recall failed: $out"
+  assert_equals "open decisions:
+  pick-colour: waiting on the captain since 2026-09-24, last touch 2026-09-24
+recently touched:
+  ticket ENG-12, last touch 2026-09-24
+  project web, last touch 2026-09-24
+  project billing, last touch 2026-09-24" "$out" "threads view"
+  out=$(TODAY=2026-09-24 run_log "$home" recall --recent --for threads)
+  lacks "$out" "open decisions" "a decision opened today"
+  : > "$home/state/.log-index-stale"
+  out=$(run_log "$home" recall --recent --for threads; echo "rc=$?")
+  assert_equals "rc=0" "$out" "a stale index prints nothing"
+  empty=$(make_home threads-empty)
+  run_log "$empty" sync >/dev/null 2>&1
+  out=$(run_log "$empty" recall --recent --for threads; echo "rc=$?")
+  assert_equals "rc=0" "$out" "an empty index prints nothing"
+  out=$(run_log "$TMP_ROOT/nowhere" recall --recent --for threads; echo "rc=$?")
+  assert_equals "rc=0" "$out" "a missing home prints nothing"
+  pass "recall --for threads shows open decisions and recent entities, and nothing otherwise"
+}
+
 test_exact_ticket_golden_pack
+test_recent_threads_view
 test_plain_person_name_resolves
 test_aliases_and_structured_tickets_resolve
 test_filed_person_matches_registered_name_case_insensitively
