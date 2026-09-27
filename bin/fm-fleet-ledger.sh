@@ -25,7 +25,7 @@
 #   bin/fm-log.sh                learning (learn, called while filing a learning)
 #
 # Usage:
-#   fm-fleet-ledger.sh dispatched <task> <kind> <project> <harness> <model>
+#   fm-fleet-ledger.sh dispatched <task> <kind> <project> <harness> <model> [<entities>]
 #   fm-fleet-ledger.sh pr_ready <task> <url>
 #   fm-fleet-ledger.sh merged <task> pr <url>
 #   fm-fleet-ledger.sh merged <task> local
@@ -37,6 +37,10 @@
 #   fm-fleet-ledger.sh noted <note-id> <task-or-empty> <log-day-or-empty> <thread-or-empty> <text>
 #   fm-fleet-ledger.sh replied <note-id> <text>
 #   fm-fleet-ledger.sh learning <slug> <title>
+#
+# dispatched's optional <entities> is the {tickets,people} JSON object that
+# bin/fm-fleet-snapshot.sh --task-entities prints; its string arrays become the
+# record's tickets and people members when non-empty; anything else adds neither.
 #
 # The noted, replied, and learning records are not about a task; their `task`
 # member is the related task id when one is named, else null.
@@ -78,7 +82,7 @@ LOCK="$STATE/.fleet-ledger.lock"
 TEXT_MAX_CHARS=2000
 
 usage() {
-  echo "usage: fm-fleet-ledger.sh dispatched <task> <kind> <project> <harness> <model> | pr_ready <task> <url> | merged <task> pr <url> | merged <task> local | cleaned_up <task> | capture | appended <config> <state>/<task>.status | held <task> <reason> [<until>] | answered <task> <mode> <source> <words> | noted <note-id> <task> <log-day> <thread> <text> | replied <note-id> <text> | learning <slug> <title>" >&2
+  echo "usage: fm-fleet-ledger.sh dispatched <task> <kind> <project> <harness> <model> [<entities>] | pr_ready <task> <url> | merged <task> pr <url> | merged <task> local | cleaned_up <task> | capture | appended <config> <state>/<task>.status | held <task> <reason> [<until>] | answered <task> <mode> <source> <words> | noted <note-id> <task> <log-day> <thread> <text> | replied <note-id> <text> | learning <slug> <title>" >&2
   exit 2
 }
 
@@ -88,7 +92,7 @@ task_ok() {
 
 cmd=${1:-}
 case "$cmd" in
-  dispatched) { [ "$#" -eq 6 ] && task_ok "$2"; } || usage ;;
+  dispatched) { { [ "$#" -eq 6 ] || [ "$#" -eq 7 ]; } && task_ok "$2"; } || usage ;;
   pr_ready) { [ "$#" -eq 3 ] && task_ok "$2" && [ -n "$3" ]; } || usage ;;
   merged)
     task_ok "${2:-}" || usage
@@ -228,8 +232,13 @@ case "$cmd" in
   dispatched)
     rm -f -- "$(offset_path "$2")"
     append task.dispatched "$2" \
-      '{kind: ($kind | n), project: ($project | n), harness: ($harness | n), model: ($model | n)}' \
-      --arg kind "$3" --arg project "$4" --arg harness "$5" --arg model "$6" || rc=1
+      '{kind: ($kind | n), project: ($project | n), harness: ($harness | n), model: ($model | n)}
+       + (($entities | try fromjson catch null) as $e
+          | def names($k): ($e[$k] | select(type == "array") | map(select(type == "string" and . != "") | .[0:120]) | select(length > 0));
+          if ($e | type) == "object" then
+            ({tickets: names("tickets")} // {}) + ({people: names("people")} // {})
+          else {} end)' \
+      --arg kind "$3" --arg project "$4" --arg harness "$5" --arg model "$6" --arg entities "${7:-}" || rc=1
     ;;
   pr_ready)
     capture_task "$2" || rc=1

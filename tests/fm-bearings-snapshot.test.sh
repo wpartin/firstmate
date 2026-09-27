@@ -3414,3 +3414,19 @@ test_revealed_deferred_holds_show_their_deferral_reason
 test_pr_repository_cap_and_expansion
 test_per_repository_pr_cap_is_disclosed
 test_projection_and_toon_fail_closed
+
+test_queue_projects_structured_ticket_and_people_fields() {
+  local home fakebin json
+  home=$(make_home entity-fields)
+  printf '## In flight\n\n## Queued\n- [ ] with-fields - retry billing (kind: ship) (repo: billing)\n  a note\n  ticket: ENG-1, ENG-2, ENG-1\n  people: Dana Reyes,  Sam \n- [ ] no-fields - plain work (kind: ship) (repo: billing)\n\n## Done\n' \
+    > "$home/data/backlog.md"
+  fakebin=$(make_fakebin "$home")
+  json=$(run "$home" "$fakebin" --json --fields queue)
+  printf '%s' "$json" | jq -e '
+    ([.queue[] | select(.id == "with-fields") | {tickets, people}][0]
+       == {tickets:["ENG-1","ENG-2"], people:["Dana Reyes","Sam"]})
+    and ([.queue[] | select(.id == "no-fields") | {tickets, people}][0] == {tickets:[], people:[]})' >/dev/null \
+    || fail "queue rows must project the snapshot's ticket and people fields: $json"
+  pass "the queue projection carries each row's structured ticket and people fields from the canonical snapshot"
+}
+test_queue_projects_structured_ticket_and_people_fields

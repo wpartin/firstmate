@@ -266,6 +266,35 @@ test_worker_status_line_with_the_flag_absent() {
   pass "flag off: the worker's status command is a plain append and leaves no ledger file, offset, or lock"
 }
 
+test_dispatch_carries_the_backlog_items_structured_fields() {
+  local out rows
+  command -v tasks-axi >/dev/null 2>&1 || { echo "skip: tasks-axi not found; structured dispatch fields not run"; return 0; }
+  make_case fields on
+  printf '## In flight\n\n## Queued\n- [ ] %s - retry billing (kind: ship) (repo: sample)\n  ticket: ENG-1, ENG-2\n  people: Dana Reyes\n\n## Done\n' \
+    "$TASK" > "$HOME_DIR/data/backlog.md"
+  out=$(in_home "$ROOT/bin/fm-spawn.sh" "$TASK" "$PROJ_DIR" --mode local-only --yolo off 2>&1) \
+    || fail "spawn failed: $out"
+  rows=$(ledger_rows 'select(.event == "task.dispatched") | [.tickets, .people]')
+  assert_equals '[["ENG-1","ENG-2"],["Dana Reyes"]]' "$rows" "dispatched entity members"
+  pass "a fresh spawn records the backlog item's ticket and people fields on its dispatch record"
+}
+
+test_dispatched_entities_argument_is_optional_and_validated() {
+  local rows
+  make_case entities-arg on
+  for e in '{"tickets":["ENG-1"],"people":["Dana"]}' '{"tickets":[],"people":["Sam",7,""]}' 'not json' ''; do
+    in_home "$ROOT/bin/fm-fleet-ledger.sh" dispatched "$TASK" ship web claude "" "$e" || fail "dispatched with '$e' failed"
+  done
+  in_home "$ROOT/bin/fm-fleet-ledger.sh" dispatched "$TASK" ship web claude "" || fail "dispatched without entities failed"
+  rows=$(ledger_rows '[has("tickets"), .tickets, has("people"), .people]')
+  assert_equals '[true,["ENG-1"],true,["Dana"]]
+[false,null,true,["Sam"]]
+[false,null,false,null]
+[false,null,false,null]
+[false,null,false,null]' "$rows" "entity members"
+  pass "dispatched adds only non-empty string ticket and people members, and stays valid without them"
+}
+
 test_flag_off_writes_nothing() {
   local leftovers
   make_case off-lifecycle off
@@ -276,6 +305,8 @@ test_flag_off_writes_nothing() {
 }
 
 test_flag_on_records_the_task_lifecycle
+test_dispatch_carries_the_backlog_items_structured_fields
+test_dispatched_entities_argument_is_optional_and_validated
 test_flag_on_records_a_pr_merge_once
 test_flag_on_records_a_pr_registration
 test_worker_status_line_is_recorded_when_written

@@ -64,12 +64,25 @@ When the snapshot cannot be read, the last good view stays and is marked stale.
 
 ## Tickets, projects, people, learnings
 
-- **Tickets** link only through `config/log-tickets`: one `<regex><TAB><url template>` per line, where the first capture group (or the whole match) is the ticket id and `{id}` in the template is replaced by it, for example `(?i)\b([A-Z]{2,5}-\d+)\b` followed by a tab and `https://tracker.example/issue/{id}`.
-  Without that file nothing is treated as a ticket.
+Tickets, projects, and people are captured as structured fields when work is filed, so their notes fill in the same way every time:
+
+```
+bin/fm-tasks-axi.sh add eng-1-retry "retry billing calls" --repo billing --ticket ENG-1 --people "Dana Reyes"
+```
+
+`--ticket` and `--people` are repeatable and write `ticket: ENG-1` and `people: Dana Reyes` lines into the item's body; `--repo` is the project.
+The dispatch record carries those fields forward, so the task's start, findings, decisions asked and answered, PR, and landing each add one line of the same shape, `<date time> <what>: <title> - <detail>`, to every ticket, project, and person note it names.
+A task filed without the fields keeps the older behavior: tickets come from its title or id through the patterns below, and those inferred matches count for less in recall.
+
+- **Tickets** link through `config/log-tickets`: one `<regex><TAB><url template>` per line, where the first capture group (or the whole match) is the ticket id and `{id}` in the template is replaced by it, for example `(?i)\b([A-Z]{2,5}-\d+)\b` followed by a tab and `https://tracker.example/issue/{id}`.
+  Without that file only `ticket:` fields are treated as tickets.
 - **Projects** get a note the first time work in them is logged.
-- **People** are linked only when a task's body carries a `people: Name, Other Name` line; an optional `config/log-people` allowlist (one name per line) limits which names are linked.
-  Names are never guessed from prose.
+- **People** are linked only from a task's `people:` field; names are never taken from prose.
+  An optional `config/log-people` lists who may be linked, one person per line as `Name` or `Name<TAB>alias, alias`; a listed alias resolves to its name in notes and recall.
 - **Learnings** are written with `bin/fm-log.sh learn <slug> <title>` (body on stdin), which also links them from the day note.
+
+At intake, `bin/fm-log.sh entities "<the captain's words>"` suggests configured ticket ids and listed names or aliases that appear verbatim in the words.
+It records nothing: firstmate decides whether to pass them as `--ticket` or `--people`.
 
 `config/log-redact` optionally lists regular expressions, one per line, whose matches are replaced with `[redacted]` before anything is written.
 
@@ -87,7 +100,7 @@ bin/fm-log.sh recall --recent                        # the last week, plus every
 It returns one bounded pack, newest and most relevant first: the entities involved with when each was first and last touched, a dated timeline of outcomes, the decisions with the captain's recorded words, learnings, and the items still open.
 Every line carries its date and a citation to the note it came from (`<note path>#<anchor>`), so a line can be quoted precisely and opened in the note.
 Anything left out by the bound is counted on a `more:` line.
-Names from the ticket patterns, task ids, registered projects, and `config/log-people` are matched exactly and shown on a `resolved:` line; the rest of the question is searched as text.
+Ticket ids, task ids, registered projects, and people (including `config/log-people` aliases) are matched exactly and shown on a `resolved:` line; the rest of the question is searched as text.
 
 Recall reads a derived index at `state/.log-index.db`, which each sync keeps current from the fleet ledger, the notes (including lines the captain wrote by hand), and the first paragraph of each scout report.
 The index is disposable: `bin/fm-log.sh index --rebuild` recreates it, and redacted text never reaches it.

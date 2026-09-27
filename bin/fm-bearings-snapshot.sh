@@ -662,9 +662,7 @@ MODEL=$(printf '%s' "$SNAP" | jq \
            hold_reason, hold_until, blocked_by:(.unresolved_blocker_ids // []),
            pr_url, since, done:(.completion.date // .done // null),
            kind, captain_actionable,
-           people:([.body_lines[]? | select(test("^people:"; "i"))
-                    | sub("^people:[[:space:]]*"; ""; "i") | split(",")[]
-                    | gsub("^[[:space:]]+|[[:space:]]+$"; "") | select(. != "")])} ]} else {} end)
+           tickets:(.tickets // []), people:(.people // [])} ]} else {} end)
   | . + (if $f_bodies then {bodies:[ $snap.backlog.records[] | select(.structured and (.state == "queued" or .state == "done")) | {id, body:((.body_excerpt // .raw // "-") | trunc(200))} ]} else {} end)
   | . + (if $f_paths then {paths:[ $snap.tasks[] | {id, worktree:(.paths.worktree.path // "-"), home:(.paths.home.path // "-"), status:.paths.status_log.path, report:.paths.report.path} ]} else {} end)
   | . + (if $f_actions then {actions:[ $snap.tasks[] | {id, watch:(.actions.watch // .actions.send // "-"), steer:(.actions.steer // .actions.send // "-")} ]} else {} end)

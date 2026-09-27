@@ -110,6 +110,51 @@ test_events_render_golden_day_note_and_replay_is_a_noop() {
   pass "ledger records render a golden day note, side notes, and replay is a no-op"
 }
 
+test_structured_fields_fill_every_note_the_same_way() {
+  local home dispatch ticket person project
+  home=$(make_home structured)
+  printf 'Dana Reyes\tDana\n' > "$home/config/log-people"
+  printf '{"queue":[{"id":"eng-work","title":"retry billing","repo":"billing","state":"in_flight","blocked_by":[],"tickets":[],"people":[]}]}\n' > "$home/snapshot.json"
+  dispatch='{"v":1,"ts":'"$T0"',"event":"task.dispatched","task":"eng-work","kind":"ship","project":"billing","harness":"claude","model":null,"tickets":["ENG-1"],"people":["Dana"]}'
+  ledger "$home" "$dispatch"
+  run_log "$home" sync >/dev/null 2>&1 || fail "first sync failed"
+  ledger "$home" \
+    '{"v":1,"ts":'"$((T0 + 60))"',"event":"task.status","task":"eng-work","state":"done","key":null,"text":" tests pass"}' \
+    '{"v":1,"ts":'"$((T0 + 120))"',"event":"task.pr_ready","task":"eng-work","pr":"https://github.com/acme/billing/pull/9"}' \
+    '{"v":1,"ts":'"$((T0 + 180))"',"event":"task.merged","task":"eng-work","via":"pr","pr":"https://github.com/acme/billing/pull/9"}'
+  run_log "$home" sync >/dev/null 2>&1 || fail "second sync failed"
+  ticket=$(grep '^- ' "$home/data/log/tickets/ENG-1.md" | sed 's/ %% fm:.*//')
+  person=$(grep '^- ' "$home/data/log/people/Dana Reyes.md" | sed 's/ %% fm:.*//')
+  project=$(grep '^- ' "$home/data/log/projects/billing.md" | sed 's/ %% fm:.*//')
+  assert_equals "- 2026-09-24 09:00 Started: retry billing
+- 2026-09-24 09:01 Finished: retry billing - tests pass
+- 2026-09-24 09:02 Ready for review: retry billing - https://github.com/acme/billing/pull/9
+- 2026-09-24 09:03 Landed: retry billing - https://github.com/acme/billing/pull/9" "$ticket" "ticket note lines"
+  assert_equals "$ticket" "$person" "person note lines"
+  assert_equals "$ticket" "$project" "project note lines"
+  has "$(cat "$(day_note "$home" 2026-09-24)")" "- 09:00 Started retry billing for [[ENG-1]] in [[billing]] with [[Dana Reyes]] %% fm:"
+  pass "a task filed with a ticket and a person fills its ticket, person, and project notes with identical lines"
+}
+
+test_entities_suggests_and_records_nothing() {
+  local home out before
+  home=$(make_home entities)
+  printf '(?i)\\b(ENG-[0-9]+)\\b\thttps://tracker.example/{id}\n' > "$home/config/log-tickets"
+  printf 'Dana Reyes\tDana, DR\nSam Example\n' > "$home/config/log-people"
+  before=$(cd "$home" && find . | sort)
+  out=$(run_log "$home" entities "ask Dana about ENG-12 and eng-3; Samuel is not Sam Example's alias") \
+    || fail "entities failed: $out"
+  assert_equals "tickets[2]: ENG-12,ENG-3
+people[2]{name,said}:
+  Dana Reyes,Dana
+  Sam Example,Sam Example" "$(printf '%s\n' "$out" | sed -n '1,4p')" "suggestions"
+  has "$out" "nothing was recorded"
+  assert_equals "$before" "$(cd "$home" && find . | sort)" "entities wrote a file"
+  out=$(run_log "$home" entities "dana and samuel") || fail "entities failed"
+  has "$out" "people[0]{name,said}:"
+  pass "entities suggests configured ticket ids and verbatim names or aliases and writes nothing"
+}
+
 test_queue_view_renders_from_the_snapshot() {
   local home
   home=$(make_home queue)
@@ -365,6 +410,8 @@ test_wait_bounds_a_non_quiet_sync() {
 test_events_render_golden_day_note_and_replay_is_a_noop
 test_queue_view_renders_from_the_snapshot
 test_log_never_reads_the_backlog_file
+test_structured_fields_fill_every_note_the_same_way
+test_entities_suggests_and_records_nothing
 test_midnight_split_and_carried_over_seed
 test_answers_nest_under_their_hold_across_days
 test_inbox_threads_render_only_with_a_log_day

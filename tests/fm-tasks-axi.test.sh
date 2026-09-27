@@ -227,6 +227,27 @@ test_wrapper_refuses_add_start() {
   pass "fm-tasks-axi.sh refuses add --start while plain add and start <id> pass through"
 }
 
+test_wrapper_add_structured_fields() {
+  local dir out
+  dir=$(make_split add-fields)
+  printf 'body from a file\n' > "$dir/code/body.txt"
+  wrapper_from_code "$dir" add t-fields "retry billing" --repo billing --body-file body.txt \
+    --ticket ENG-1 --ticket=ENG-2 --people "Dana Reyes" >/dev/null || fail "add with structured fields failed"
+  assert_equals "  body from a file
+  ticket: ENG-1, ENG-2
+  people: Dana Reyes" "$(sed -n '/t-fields/,/^## /p' "$dir/home/data/backlog.md" | sed -n '2,4p')" "structured body lines"
+  out=$(FM_HOME="$dir/home" "$ROOT/bin/fm-fleet-snapshot.sh" --task-entities t-fields)
+  assert_equals '{"tickets":["ENG-1","ENG-2"],"people":["Dana Reyes"]}' "$out" "snapshot entities"
+  wrapper_from_code "$dir" add t-plain "no fields" >/dev/null || fail "add without fields failed"
+  assert_equals '{"tickets":[],"people":[]}' "$(FM_HOME="$dir/home" "$ROOT/bin/fm-fleet-snapshot.sh" --task-entities t-plain)" "no fields"
+  if out=$(wrapper_from_code "$dir" add t-bad "bad" --people "Dana, Sam" 2>&1); then
+    fail "a comma in --people was accepted"
+  fi
+  assert_contains "$out" "without commas" "comma refusal"
+  assert_not_contains "$(cat "$dir/home/data/backlog.md")" "t-bad" "a refused add wrote a row"
+  pass "add --ticket/--people write structured body lines the snapshot reads back, and a comma is refused"
+}
+
 test_wrapper_single_home() {
   local dir
   dir="$TMP_ROOT/single-wrapper"
@@ -249,6 +270,7 @@ if [ "$HAVE_TASKS_AXI" = 1 ]; then
   test_wrapper_refusals
   test_wrapper_refuses_add_start
   test_wrapper_single_home
+  test_wrapper_add_structured_fields
 else
   echo "skip: tasks-axi not found; home-addressing cases not run"
 fi

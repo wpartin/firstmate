@@ -14,6 +14,14 @@
 # stores it verbatim as a link, which lifecycle transitions record relative to
 # that same root.
 #
+# Structured tracking fields (add/create only; tasks-axi itself never sees them):
+#   --ticket <ID>     repeatable; written as one `ticket: ID, ID` body line
+#   --people <name>   repeatable; written as one `people: Name, Name` body line
+# The lines are appended after any --body or --body-file text and are passed on
+# as one --body. bin/fm-fleet-snapshot.sh owns reading them back, and
+# docs/captains-log.md owns what they mean for the log. A value that is empty or
+# carries a comma or newline is refused, since either would split the field.
+#
 # Why it exists: a bare `tasks-axi` resolves the tracked `.tasks.toml` paths
 # against its working directory, so from the code root it forks the queue
 # whenever the home lives elsewhere; docs/configuration.md ("Backlog backend")
@@ -88,8 +96,40 @@ absolute_from_caller() {  # <path-value>
 }
 
 ARGS=()
+TICKETS=()
+PEOPLE=()
+BODY=
+BODY_SET=0
 path_value_next=0
+field_next=
+is_add=0
+case "${1:-}" in add|create) is_add=1 ;; esac
+
+field_value() {  # <flag> <value>
+  case "$1" in
+    --ticket|--people)
+      case "$2" in
+        ''|*,*|*$'\n'*) fail "$1 takes one non-empty value without commas or newlines; repeat the flag for more" ;;
+      esac
+      if [ "$1" = --ticket ]; then TICKETS+=("$2"); else PEOPLE+=("$2"); fi
+      ;;
+    --body) BODY=$2; BODY_SET=1 ;;
+    --body-file) BODY=$(cat -- "$(absolute_from_caller "$2")") || fail "cannot read --body-file $2"; BODY_SET=1 ;;
+  esac
+}
+
 for arg in "$@"; do
+  if [ -n "$field_next" ]; then
+    field_value "$field_next" "$arg"
+    field_next=
+    continue
+  fi
+  if [ "$is_add" = 1 ]; then
+    case "$arg" in
+      --ticket|--people|--body|--body-file) field_next=$arg; continue ;;
+      --ticket=*|--people=*|--body=*|--body-file=*) field_value "${arg%%=*}" "${arg#*=}"; continue ;;
+    esac
+  fi
   if [ "$path_value_next" = 1 ]; then
     ARGS+=("$(absolute_from_caller "$arg")")
     path_value_next=0
@@ -119,6 +159,14 @@ for arg in "$@"; do
       ;;
   esac
 done
+
+[ -z "$field_next" ] || fail "$field_next needs a value"
+if [ "$is_add" = 1 ]; then
+  join_list() { local IFS=,; printf '%s' "$*" | sed 's/,/, /g'; }
+  [ "${#TICKETS[@]}" -eq 0 ] || BODY="${BODY:+$BODY$'\n'}ticket: $(join_list "${TICKETS[@]}")"
+  [ "${#PEOPLE[@]}" -eq 0 ] || BODY="${BODY:+$BODY$'\n'}people: $(join_list "${PEOPLE[@]}")"
+  [ "$BODY_SET" = 0 ] && [ -z "$BODY" ] || ARGS+=(--body "$BODY")
+fi
 
 command -v tasks-axi >/dev/null 2>&1 || fail "tasks-axi is not on PATH; run bin/fm-bootstrap.sh for the install command"
 

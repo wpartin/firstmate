@@ -110,6 +110,37 @@ test_plain_person_name_resolves() {
   pass "a person's plain name in a question becomes an entity filter"
 }
 
+test_aliases_and_structured_tickets_resolve() {
+  local home out a b
+  home=$(make_home aliases)
+  printf 'Dana Reyes\tDana, DR\n' > "$home/config/log-people"
+  cat > "$home/snapshot.json" <<'EOF'
+{"queue":[
+  {"id":"eng-12-retry","title":"ENG-12 retry billing calls","repo":"billing","state":"done","blocked_by":[],"people":["Dana Reyes"]},
+  {"id":"docs-a","title":"document billing","repo":"billing","state":"done","blocked_by":[],"tickets":[],"people":[]},
+  {"id":"docs-b","title":"ENG-5 cleanup","repo":"billing","state":"done","blocked_by":[],"tickets":[],"people":[]}
+ ]}
+EOF
+  ledger "$home" "$R_START" "$R_HELD" "$R_ANSWER" \
+    '{"v":1,"ts":'"$((T0 + 400))"',"event":"task.dispatched","task":"docs-b","kind":"ship","project":"billing","harness":"claude","model":null}' \
+    '{"v":1,"ts":'"$((T0 + 400))"',"event":"task.dispatched","task":"docs-a","kind":"ship","project":"billing","harness":"claude","model":null,"tickets":["ENG-5","ENG-77"],"people":["DR"]}'
+  run_log "$home" sync >/dev/null 2>&1 || fail "sync failed"
+  out=$(run_log "$home" recall what did Dana decide) || fail "alias recall failed: $out"
+  has "$out" "resolved: person Dana Reyes"
+  has "$out" "retry with jitter, never approach B"
+  out=$(run_log "$home" recall --person DR) || fail "alias flag recall failed: $out"
+  has "$out" "resolved: person Dana Reyes"
+  has "$out" ",docs-a,"
+  out=$(run_log "$home" recall ENG-77) || fail "filed ticket recall failed: $out"
+  has "$out" "resolved: ticket ENG-77"
+  has "$out" ",docs-a,"
+  out=$(run_log "$home" recall ENG-5) || fail "mixed ticket recall failed: $out"
+  a=$(printf '%s\n' "$out" | grep -n ',docs-a,' | head -1 | cut -d: -f1)
+  b=$(printf '%s\n' "$out" | grep -n ',docs-b,' | head -1 | cut -d: -f1)
+  [ -n "$a" ] && [ -n "$b" ] && [ "$a" -lt "$b" ] || fail "a filed ticket should outrank a title match: $out"
+  pass "aliases resolve to their person, filed tickets resolve without the title, and title matches rank lower"
+}
+
 test_fuzzy_terms_and_misspelled_names() {
   local home out
   home=$(make_home fuzzy)
@@ -324,6 +355,7 @@ EOF
 
 test_exact_ticket_golden_pack
 test_plain_person_name_resolves
+test_aliases_and_structured_tickets_resolve
 test_fuzzy_terms_and_misspelled_names
 test_since_filters_older_rows
 test_bound_and_more_count
