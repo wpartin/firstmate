@@ -1,0 +1,30 @@
+== fm-log-contract-points
+ok - empty history or an off log leaves the brief unchanged
+ok - a task whose only recall row is its own open item gets no Relevant history
+ok - add stays silent when a title only resembles an entity name
+ok - add prints RELATED only when its entities resolve and the log is on
+== fm-log-recall
+ok - --for captain keeps one cite per group
+ok - a failed index update leaves a marker that recall reports
+ok - recall and index exit 3 silently when the log is off
+ok - a 50k-record ledger answers an exact ticket in 64 ms
+== fm-log
+ok - the log refuses when off, unreachable, or owned by another home, and replays afterwards
+ok - enable turns on the ledger, lays out the log, and warns about a location outside the home
+ok - start logs by default, honors off and a folder, and a secondmate home logs to its own data/log
+ok - --wait bounds a non-quiet sync's wait for a held lock
+== fm-tasks-axi
+ok - fm-tasks-axi.sh refuses caller --file, a symlinked home backlog, and an unresolvable home
+ok - fm-tasks-axi.sh refuses add --start while plain add and start <id> pass through
+ok - fm-tasks-axi.sh keeps the single-home layout addressing its own code-root backlog
+ok - add --ticket/--people write structured body lines the snapshot reads back, and a comma is refused
+== fm-fleet-ledger
+ok - ledger failing: the worker's status line still lands exactly, quietly, and the backstop records it later
+note: no local copy of 'sample' under /private/var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/fm-fleet-ledger.JYiMck/off-immediate/home/projects, so this brief states no PR quality limits; pass --project-dir <path> if that project enforces any
+ok - flag off: the worker's status command is a plain append and leaves no ledger file, offset, or lock
+ok - flag off: the whole lifecycle leaves no ledger file, offset, or lock
+== fm-bearings-snapshot
+ok - live PR enrichment caps repositories with counted expansion
+ok - per-repository open-PR caps are disclosed with an expansion knob
+ok - projection and TOON rendering failures exit nonzero with diagnostics
+ok - the queue projection carries each row's structured ticket and people fields from the canonical snapshot
