@@ -109,7 +109,9 @@ class Config:
         name = (name or "").strip()
         if self.people is None or name in self.people:
             return name or None
-        return next((canon for alias, canon in self.aliases if alias.lower() == name.lower()), None)
+        folded = name.lower()
+        return next((canon for canon in self.people if canon.lower() == folded), None) or next(
+            (canon for alias, canon in self.aliases if alias.lower() == folded), None)
 
     def persons(self, names):
         out = []

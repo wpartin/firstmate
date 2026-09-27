@@ -113,8 +113,8 @@ test_events_render_golden_day_note_and_replay_is_a_noop() {
 test_structured_fields_fill_every_note_the_same_way() {
   local home dispatch ticket person project
   home=$(make_home structured)
-  printf 'Dana Reyes\tDana\n' > "$home/config/log-people"
-  printf '{"queue":[{"id":"eng-work","title":"retry billing","repo":"billing","state":"in_flight","blocked_by":[],"tickets":[],"people":[]}]}\n' > "$home/snapshot.json"
+  printf 'Dana Reyes\tDana\nSam Example\n' > "$home/config/log-people"
+  printf '{"queue":[{"id":"eng-work","title":"retry billing","repo":"billing","state":"in_flight","blocked_by":[],"tickets":[],"people":["sam example"]}]}\n' > "$home/snapshot.json"
   dispatch='{"v":1,"ts":'"$T0"',"event":"task.dispatched","task":"eng-work","kind":"ship","project":"billing","harness":"claude","model":null,"tickets":["ENG-1"],"people":["Dana"]}'
   ledger "$home" "$dispatch"
   run_log "$home" sync >/dev/null 2>&1 || fail "first sync failed"
@@ -131,8 +131,9 @@ test_structured_fields_fill_every_note_the_same_way() {
 - 2026-09-24 09:02 Ready for review: retry billing - https://github.com/acme/billing/pull/9
 - 2026-09-24 09:03 Landed: retry billing - https://github.com/acme/billing/pull/9" "$ticket" "ticket note lines"
   assert_equals "$ticket" "$person" "person note lines"
+  assert_equals "$ticket" "$(grep '^- ' "$home/data/log/people/Sam Example.md" | sed 's/ %% fm:.*//')" "case-folded person note lines"
   assert_equals "$ticket" "$project" "project note lines"
-  has "$(cat "$(day_note "$home" 2026-09-24)")" "- 09:00 Started retry billing for [[ENG-1]] in [[billing]] with [[Dana Reyes]] %% fm:"
+  has "$(cat "$(day_note "$home" 2026-09-24)")" "- 09:00 Started retry billing for [[ENG-1]] in [[billing]] with [[Dana Reyes]], [[Sam Example]] %% fm:"
   pass "a task filed with a ticket and a person fills its ticket, person, and project notes with identical lines"
 }
 
