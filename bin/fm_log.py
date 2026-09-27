@@ -495,6 +495,14 @@ class Log:
         slug = safe_name(rec.get("slug") or "")
         title = clean(rec.get("title"), self.cfg, 120)
         self.worked(day, stamp, "Learned [[%s|%s]]" % (slug, title), eid)
+        sources = learning_sources(rec.get("sources"), self.cfg)
+        line = "%s Learned [[%s|%s]]" % (when.strftime("%Y-%m-%d %H:%M"), slug, title)
+        for tid in sources["tickets"]:
+            url = self.cfg.ticket_url(tid)
+            header = ["# " + tid, ""] + (["[Open in the tracker](%s)" % url, ""] if url else [])
+            self.side_note("tickets", tid, header, line, eid)
+        for project in sources["projects"]:
+            self.side_note("projects", project, ["# " + project, ""], line, eid)
 
     # ---- computed views ---------------------------------------------------
     def open_items(self):
@@ -674,11 +682,54 @@ def cmd_ticket(args):
     print(os.path.join(root, "tickets", safe_name(tid) + ".md"))
 
 
+SOURCE_KEYS = ("tasks", "tickets", "projects")
+
+
+def learning_sources(value, cfg):
+    """The {tasks, tickets, projects} lists of a learning's sources, cleaned; anything malformed is empty."""
+    out = {k: [] for k in SOURCE_KEYS}
+    if not isinstance(value, dict):
+        return out
+    for key in SOURCE_KEYS:
+        for name in value.get(key) if isinstance(value.get(key), list) else []:
+            name = clean(name, cfg, 80) if isinstance(name, str) else ""
+            name = name.upper() if key == "tickets" else name
+            if name and name not in out[key]:
+                out[key].append(name)
+    return out
+
+
+def split_frontmatter(text):
+    """Return (fields, rest) for a note that opens with a `---` frontmatter block of `key: <json>` lines."""
+    lines = text.split("\n")
+    if not lines or lines[0] != "---" or "---" not in lines[1:]:
+        return {}, text
+    end = lines.index("---", 1)
+    fields = {}
+    for line in lines[1:end]:
+        key, sep, value = line.partition(":")
+        if sep:
+            try:
+                fields[key.strip()] = json.loads(value.strip())
+            except ValueError:
+                fields[key.strip()] = value.strip()
+    return fields, "\n".join(lines[end + 1:])
+
+
 def cmd_learn(args):
-    root, slug, title = args
+    root, config_dir, slug, title, sources_json, today = args
     body = sys.stdin.read()
     path = os.path.join(root, "learnings", safe_name(slug) + ".md")
     text = "# %s\n\n%s" % (title.strip(), body if body.endswith("\n") or not body else body + "\n")
+    try:
+        raw = json.loads(sources_json) if sources_json else None
+    except ValueError:
+        raw = None
+    sources = learning_sources(raw, Config(config_dir))
+    if any(sources.values()):
+        filed = split_frontmatter(read(path) or "")[0].get("filed") or today
+        head = ["---"] + ["%s: %s" % (k, json.dumps(sources[k])) for k in SOURCE_KEYS] + ["filed: %s" % filed, "---"]
+        text = "\n".join(head) + "\n" + text
     if read(path) != text:
         write_atomic(path, text)
     print(path)
@@ -708,7 +759,7 @@ def cmd_unresolved(args):
 
 # ---- recall index: derived and disposable, `index --rebuild` recreates it ----
 
-INDEX_SCHEMA = "2"
+INDEX_SCHEMA = "3"
 # A ticket matched only from a task title or id counts for less than one filed in its ticket: field.
 INFERRED_WEIGHT = 0.5
 GROUP_WEIGHT = {"decision": 5.0, "learning": 4.0, "outcome": 3.0, "report": 3.0, "timeline": 1.0}
@@ -927,11 +978,14 @@ class Indexer:
         elif event == "learning.filed":
             slug = safe_name(rec.get("slug") or "")
             uid = "learning:" + slug
-            if self.conn.execute("SELECT 1 FROM rows WHERE uid=?", (uid,)).fetchone():
+            sources = learning_sources(rec.get("sources"), self.cfg)
+            row = self.conn.execute("SELECT id FROM rows WHERE uid=?", (uid,)).fetchone()
+            if row:
                 self.conn.execute("UPDATE rows SET ts=?, src='ledger' WHERE uid=?", (ts, uid))
             else:
-                self.put_row(uid, "learning", ts, "", c(rec.get("title"), 120),
-                             "learnings/%s.md#top" % slug, "ledger")
+                row = (self.put_row(uid, "learning", ts, "", c(rec.get("title"), 120),
+                                    "learnings/%s.md#top" % slug, "ledger", links=[]),)
+            self.learning_links(row[0], sources)
 
     # ---- notes and reports ------------------------------------------------
     def sources(self):
@@ -1004,8 +1058,22 @@ class Indexer:
         self.put_row("report:" + task, "report", int(mtime), task, what,
                      "data/%s/report.md#top" % task, "report:" + task)
 
+    def learning_links(self, rid, sources):
+        """Link a learning row to the tickets, projects, and tasks it came from; its first task joins the task's entities."""
+        pairs = ([("ticket", t) for t in sources["tickets"]] + [("project", p) for p in sources["projects"]]
+                 + [("task", t) for t in sources["tasks"]])
+        for kind, name in pairs:
+            if not self.conn.execute("SELECT 1 FROM links WHERE row=? AND kind=? AND name=?", (rid, kind, name)).fetchone():
+                self.conn.execute("INSERT INTO links(row,kind,name) VALUES(?,?,?)", (rid, kind, name))
+        for task in sources["tasks"]:
+            self.task_seen(task)
+        if sources["tasks"]:
+            self.conn.execute("UPDATE rows SET task=? WHERE id=? AND task=''", (sources["tasks"][0], rid))
+
     def learning_note(self, rel, text, mtime):
         slug = os.path.splitext(rel[len("learnings/"):])[0]
+        fields, text = split_frontmatter(text)
+        sources = learning_sources(fields, self.cfg)
         lines = text.splitlines()
         title = next((l[2:].strip() for l in lines if l.startswith("# ")), slug)
         body = " ".join(l.strip() for l in lines if l.strip() and not l.startswith("#"))
@@ -1014,9 +1082,11 @@ class Indexer:
         if row:
             self.conn.execute("UPDATE rows SET what=?, answer=? WHERE id=?", (title, body, row[0]))
             self.refresh_fts(row[0])
+            rid = row[0]
         else:
-            self.put_row("learning:" + slug, "learning", int(mtime), "", title,
-                         "learnings/%s.md#top" % slug, "log:" + rel, answer=body)
+            rid = self.put_row("learning:" + slug, "learning", int(mtime), "", title,
+                               "learnings/%s.md#top" % slug, "log:" + rel, answer=body)
+        self.learning_links(rid, sources)
 
     def note(self, rel, text, mtime):
         if rel.startswith("learnings/"):
@@ -1129,7 +1199,7 @@ class Indexer:
             ents.add(("project", name, "", "projects/%s.md" % safe_name(name), 1.0))
         for name in sorted(self.cfg.people or ()):
             ents.add(("person", name, "", "people/%s.md" % safe_name(name), 1.0))
-        for kind, name in conn.execute("SELECT DISTINCT kind, name FROM links").fetchall():
+        for kind, name in conn.execute("SELECT DISTINCT kind, name FROM links WHERE kind!='task'").fetchall():
             folder = {v: k for k, v in NOTE_FOLDERS.items()}[kind]
             ents.add((kind, name, "", "%s/%s.md" % (folder, safe_name(name)), 1.0))
         conn.executemany("INSERT INTO ents(kind,name,task,note,weight) VALUES(?,?,?,?,?)", sorted(ents))
@@ -1667,7 +1737,7 @@ def main(argv):
     if len(argv) >= 2 and argv[1] == "recall":
         return cmd_recall(argv[2:])
     cmds = {"sync": (cmd_sync, 8), "add": (cmd_add, 6), "ticket": (cmd_ticket, 4),
-            "learn": (cmd_learn, 3), "unresolved": (cmd_unresolved, 1), "index": (cmd_index, 7),
+            "learn": (cmd_learn, 6), "unresolved": (cmd_unresolved, 1), "index": (cmd_index, 7),
             "entities": (cmd_entities, 2), "export": (cmd_export, 2)}
     if len(argv) < 2 or argv[1] not in cmds or len(argv) - 2 != cmds[argv[1]][1]:
         sys.stderr.write("fm_log.py: internal usage error; run bin/fm-log.sh\n")
