@@ -4,8 +4,6 @@ run-name: "PR #${{ github.event.pull_request.number }} body compliance - ${{ git
 on:
   pull_request:
     types: [opened, edited, synchronize, reopened]
-    branches:
-      - main
 
 permissions:
   contents: read
