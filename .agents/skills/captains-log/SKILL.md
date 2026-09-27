@@ -16,6 +16,7 @@ The log is a projection of durable records, so firstmate's job is to keep feedin
 ## Recall before answering about the past
 
 Before answering any question about earlier work, decisions, tickets, people, or projects, run `bin/fm-log.sh recall <the ticket, name, or words> --for captain` and answer from its dated rows, quoting the captain's recorded words for a decision.
+Recall and the rendered log already carry full text: `bin/fm-log.sh` restores any ledger field cut at the ledger's cap from its source by itself, so quote what recall returns and fetch nothing else.
 Work already has recall wired in where it is written: `bin/fm-brief.sh` adds a `## Relevant history` section and `bin/fm-tasks-axi.sh add` prints `RELATED:`, so read those before dispatching rather than re-proposing what the captain already rejected.
 
 ## What keeps the log correct

@@ -27,6 +27,7 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 
@@ -36,11 +37,17 @@ ANCHOR = "%% fm:{} %%"
 STATUS_STATES = ("done", "failed", "blocked", "needs-decision")
 QUEUED_SHOWN = 15
 # Bump to rerun the one-time repair of lines older renderers cut short.
-REPAIR_VERSION = "1"
+REPAIR_VERSION = "2"
 # Where older renderers cut: fm_log clean() kept cap-1 characters, the fleet snapshot's jq trunc kept n.
 REPAIR_CLEAN_CAPS = (90, 200)
 REPAIR_TRUNC_CAPS = (70, 90, 120, 160)
 DONE_SHOWN = 12
+# The fleet ledger's text cap and the visible suffix it adds to a cut field (docs/fleet-ledger.md).
+LEDGER_TEXT_CAP = 2000
+LEDGER_CUT = re.compile(r" \[cut: %d of (\d+) characters\]$" % LEDGER_TEXT_CAP)
+LEDGER_TEXT_FIELDS = {"task.status": "text", "captain.held": "reason", "captain.answered": "words",
+                      "inbox.noted": "text", "inbox.replied": "text", "learning.filed": "title"}
+UNAVAILABLE = " (cut at %d characters; full text unavailable)" % LEDGER_TEXT_CAP
 
 
 def write_atomic(path, text):
@@ -137,6 +144,120 @@ def clean(text, cfg):
     return text
 
 
+class FullText:
+    """Restores a ledger text field the writer cut at its cap from that field's own source, with no agent involved."""
+
+    def __init__(self, ledger, root):
+        self.state = os.path.dirname(os.path.abspath(ledger)) if ledger else ""
+        self.root = root
+        self.shown = {}
+
+    @staticmethod
+    def cut(rec):
+        """(field, capped text, full length or None) when rec's text field was cut; None otherwise."""
+        field = LEDGER_TEXT_FIELDS.get(rec.get("event"))
+        value = rec.get(field) if field else None
+        if not isinstance(value, str):
+            return None
+        marks = rec.get("truncated")
+        m = LEDGER_CUT.search(value)
+        if isinstance(marks, dict) and m and isinstance(marks.get(field), int):
+            return field, value[: m.start()], marks[field]
+        if len(value) == LEDGER_TEXT_CAP and not isinstance(marks, dict):
+            return field, value, None  # a record from before the marker: cut only if its source says so
+        return None
+
+    def expand(self, rec):
+        """rec with a cut text field replaced by its full source text, or by the capped text plus a visible suffix."""
+        found = self.cut(rec)
+        if not found:
+            return rec
+        field, capped, length = found
+        full = self.lookup(rec, capped, length)
+        if full is None:
+            full = capped if length is None else capped + UNAVAILABLE
+        out = dict(rec)
+        out[field] = full
+        return out
+
+    def lookup(self, rec, capped, length):
+        units, blobs = self.sources(rec)
+        for unit in units:
+            if unit.startswith(capped) and (len(unit) == length or (length is None and len(unit) > len(capped))):
+                return unit
+        if length is None:
+            return None
+        for blob in blobs:
+            i = blob.find(capped)
+            while i >= 0:
+                if len(blob) - i >= length:
+                    return blob[i:i + length]
+                i = blob.find(capped, i + 1)
+        return None
+
+    def file(self, *parts):
+        path = os.path.join(*parts)
+        try:
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                return fh.read()
+        except OSError:
+            return None
+
+    def sources(self, rec):
+        """(whole texts, texts to search) where the record's field was copied from."""
+        event, task = rec.get("event"), str(rec.get("task") or "")
+        ok = lambda name: isinstance(name, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", name)
+        units, blobs = [], []
+        if event == "task.status" and ok(task) and self.state:
+            text = self.file(self.state, task + ".status") or ""
+            units = [line.split(":", 1)[1] if ":" in line else line for line in text.split("\n")]
+        elif event in ("captain.held", "captain.answered") and ok(task):
+            shown = self.show(task)
+            units = [shown.get("hold_reason", "")] if event == "captain.held" else []
+            blobs = [shown.get("body", "")]
+        elif event == "inbox.noted" and ok(rec.get("note")) and self.state:
+            for sub in ("", "handled"):
+                text = self.file(self.state, "inbox", sub, rec["note"] + ".note")
+                if text is not None:
+                    body = text.partition("\n--\n")[2]
+                    units, blobs = [body, body[:-1] if body.endswith("\n") else body], [text]
+                    break
+        elif event == "inbox.replied" and ok(rec.get("note")) and self.state:
+            text = self.file(self.state, "inbox", ".replies", rec["note"]) or ""
+            body = text.partition("\n--\n")[2]
+            units, blobs = [body, body[:-1] if body.endswith("\n") else body], [text]
+        elif event == "learning.filed" and ok(rec.get("slug")) and self.root:
+            text = split_frontmatter(self.file(self.root, "learnings", rec["slug"] + ".md") or "")[1]
+            units = [l[2:].strip() for l in text.split("\n") if l.startswith("# ")][:1]
+        return [u for u in units if u], [b for b in blobs if b]
+
+    def show(self, task):
+        """The task's hold_reason and body from this home's backlog, read through bin/fm-tasks-axi.sh."""
+        if task not in self.shown:
+            fields = {}
+            try:
+                out = subprocess.run([os.path.join(os.path.dirname(os.path.abspath(__file__)), "fm-tasks-axi.sh"),
+                                      "show", task, "--full"], capture_output=True, text=True, timeout=20).stdout
+            except (OSError, subprocess.SubprocessError):
+                out = ""
+            for line in out.split("\n"):
+                key, sep, value = line.strip().partition(": ")
+                if sep and key in ("hold_reason", "body"):
+                    try:
+                        value = json.loads(value) if value.startswith('"') else value
+                    except ValueError:
+                        continue
+                    fields.setdefault(key, value if isinstance(value, str) else "")
+            self.shown[task] = fields
+        return self.shown[task]
+
+
+def note_text(text, cfg):
+    """An inbox note's rendered body: its lines other than routing fields, flattened."""
+    body = [l for l in (text or "").splitlines() if not re.match(r"^(log_day|task|thread|question|log_note)=", l)]
+    return clean(" ".join(body), cfg)
+
+
 def safe_name(name):
     return re.sub(r"[\\/:*?\"<>|#^\[\]]", "-", name).strip(" .") or "unnamed"
 
@@ -154,6 +275,7 @@ class Log:
         self.files = {}
         self.carry_limit = carry_limit
         self._disk_paths = None
+        self.full = FullText(None, root)
 
     # ---- file cache -------------------------------------------------------
     def load(self, path):
@@ -383,6 +505,7 @@ class Log:
         handler = getattr(self, "on_" + str(event).replace(".", "_"), None)
         if handler is None:
             return  # readers ignore events they do not know
+        rec = self.full.expand(rec)
         handler(rec, eid, day, stamp, task, when)
 
     def worked(self, day, stamp, text, eid):
@@ -480,9 +603,7 @@ class Log:
             return  # the answer arrives as the hold's own record
         if self.find_anchor(ANCHOR.format("note:" + note)):
             return
-        body = [l for l in (rec.get("text") or "").splitlines()
-                if not re.match(r"^(log_day|task|thread|question|log_note)=", l)]
-        text = clean(" ".join(body), self.cfg)
+        text = note_text(rec.get("text"), self.cfg)
         line = "%s %s" % (text, ANCHOR.format("note:" + note))
         thread = rec.get("thread")
         parent = self.find_anchor(ANCHOR.format("note:" + thread)) if thread else None
@@ -589,6 +710,59 @@ class Log:
                 if changed:
                     self.store(path, lines)
 
+    def piece(self, rec):
+        """The rendered form of rec's ledger text field, as every line that carries it shows it."""
+        field = LEDGER_TEXT_FIELDS.get(rec.get("event"))
+        if rec.get("event") == "inbox.noted":
+            return note_text(rec.get(field), self.cfg)
+        return clean(rec.get(field), self.cfg)
+
+    def repair_cut(self, ledger):
+        """Restore in place the lines rendered from a ledger field cut at its cap whose source still has the full text."""
+        fixes = {}
+        if not ledger or not os.path.isfile(ledger):
+            return
+        with open(ledger, "rb") as fh:
+            for raw in fh:
+                raw = raw.rstrip(b"\n")
+                try:
+                    rec = json.loads(raw.decode("utf-8"))
+                except (ValueError, UnicodeDecodeError):
+                    continue
+                found = FullText.cut(rec) if isinstance(rec, dict) else None
+                if not found:
+                    continue
+                field, capped, length = found
+                full = self.full.lookup(rec, capped, length)
+                if full is None:
+                    continue
+                new = self.piece(dict(rec, **{field: full}))
+                olds = {self.piece(dict(rec, **{field: text})) for text in (capped, capped + UNAVAILABLE)}
+                eid = hashlib.sha1(raw).hexdigest()[:12]
+                aid = ("note:" + str(rec.get("note") or "")) if rec.get("event") == "inbox.noted" else eid
+                fixes.setdefault(ANCHOR.format(aid), []).extend((old, new) for old in olds if old and old != new)
+        if not fixes:
+            return
+        for folder, dirs, files in os.walk(self.root):
+            dirs[:] = [d for d in dirs if d != "attachments" and not d.startswith(".")]
+            for name in files:
+                path = os.path.join(folder, name)
+                if not name.endswith(".md") or path == os.path.join(self.root, "queue.md"):
+                    continue
+                lines = self.load(path)
+                changed = False
+                for n, line in enumerate(lines or []):
+                    for needle, pairs in fixes.items():
+                        if needle not in line:
+                            continue
+                        for old, new in sorted(pairs, key=lambda p: -len(p[0])):
+                            if old in line and new not in line:
+                                line = line.replace(old, new, 1)
+                    if line != lines[n]:
+                        lines[n], changed = line, True
+                if changed:
+                    self.store(path, lines)
+
     # ---- computed views ---------------------------------------------------
     def open_items(self):
         rows = list(self.rows.values())
@@ -689,6 +863,7 @@ def cmd_sync(args):
     except ValueError:
         known = {}
     log = Log(root, config_dir, snapshot, board_target, today, known=known if isinstance(known, dict) else {})
+    log.full = FullText(ledger, root)
     offset = 0
     try:
         offset = int((read(cursor_path) or "0").strip() or 0)
@@ -721,6 +896,7 @@ def cmd_sync(args):
     has_fleet = snapshot is not None and snapshot.get("queue") is not None
     if has_fleet and (read(repair_path) or "").strip() != REPAIR_VERSION:
         log.repair(ledger)
+        log.repair_cut(ledger)
         write_atomic(repair_path, REPAIR_VERSION + "\n")
     today_path = log.refresh_today()
     queue_path = os.path.join(root, "queue.md")
@@ -849,7 +1025,7 @@ def cmd_unresolved(args):
 
 # ---- recall index: derived and disposable, `index --rebuild` recreates it ----
 
-INDEX_SCHEMA = "4"
+INDEX_SCHEMA = "5"
 # A ticket matched only from a task title or id counts for less than one filed in its ticket: field.
 INFERRED_WEIGHT = 0.5
 GROUP_WEIGHT = {"decision": 5.0, "learning": 4.0, "outcome": 3.0, "report": 3.0, "timeline": 1.0}
@@ -930,6 +1106,7 @@ class Indexer:
         self.data = data_dir
         self.cfg = Config(config_dir)
         self.days = Log(root, config_dir, None, "", "")
+        self.full = FullText(None, root)
 
     def put_row(self, uid, kind, ts, task, what, cite, src, answer="", state="", private=0, links=None):
         if links is None:
@@ -1016,6 +1193,7 @@ class Indexer:
         c = lambda text: clean(text, self.cfg)
         if self.conn.execute("SELECT 1 FROM rows WHERE uid=?", (eid,)).fetchone():
             return
+        rec = self.full.expand(rec)
         if event == "task.dispatched":
             project = c(rec.get("project"))
             self.task_seen(task, project)
@@ -1058,11 +1236,9 @@ class Indexer:
                 self.put_row(eid, "decision", ts, task, "", cite, "ledger", answer=words, state=mode)
         elif event == "inbox.noted" and rec.get("log_day"):
             note = c(rec.get("note"))
-            body = [l for l in (rec.get("text") or "").splitlines()
-                    if not re.match(r"^(log_day|task|thread|question|log_note)=", l)]
             log_day = c(rec.get("log_day"))
             day_cite = self.day_cite(log_day, "note:" + note) if re.fullmatch(r"\d{4}-\d{2}-\d{2}", log_day) else cite
-            self.put_row(eid, "timeline", ts, task, "Noted: " + c(" ".join(body)), day_cite, "ledger", private=1)
+            self.put_row(eid, "timeline", ts, task, "Noted: " + note_text(rec.get("text"), self.cfg), day_cite, "ledger", private=1)
         elif event == "inbox.replied":
             self.put_row(eid, "timeline", ts, task, "Replied: " + c(rec.get("text")), cite, "ledger", private=1)
         elif event == "learning.filed":
@@ -1333,6 +1509,7 @@ def cmd_index(args):
             index_drop(conn)
             index_schema(conn)
         idx = Indexer(conn, root, config_dir, data_dir)
+        idx.full = FullText(ledger, root)
         idx.set_meta("schema", INDEX_SCHEMA)
         idx.set_meta("config", digest)
         idx.ingest_ledger(ledger)

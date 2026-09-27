@@ -491,6 +491,102 @@ test_wait_bounds_a_non_quiet_sync() {
   pass "--wait bounds a non-quiet sync's wait for a held lock"
 }
 
+long_text() {  # <word> <length>: <word> repeated with spaces to exactly <length> characters, ending in END<word>
+  python3 -c 'import sys; w, n = sys.argv[1], int(sys.argv[2]); e = " END" + w; b = (w + " ") * n; print(b[:n - len(e)] + e, end="")' "$1" "$2"
+}
+
+in_home() {  # <home> <command...>
+  local home=$1
+  shift
+  FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" FM_CONFIG_OVERRIDE="$home/config" "$@"
+}
+
+test_cut_ledger_fields_resolve_from_their_sources() {
+  command -v tasks-axi >/dev/null 2>&1 || { pass "skip: tasks-axi not found"; return; }
+  local home note day rec hold answer status noted reply title short gone out id
+  home=$(make_home cut-fields)
+  snapshot "$home"
+  cp "$ROOT/.tasks.toml" "$home/.tasks.toml"
+  printf '## In flight\n\n## Queued\n\n## Done\n' > "$home/data/backlog.md"
+  hold=$(long_text holdword 5000); answer=$(long_text answerword 5000); status=$(long_text statusword 5000)
+  noted=$(long_text noteword 5000); reply=$(long_text replyword 5000); title=$(long_text titleword 2600)
+  gone=$(long_text goneword 5000); short=$(long_text shortword 1500)
+  in_home "$home" "$ROOT/bin/fm-tasks-axi.sh" add long-call "Long call" >/dev/null || fail "add failed"
+  in_home "$home" "$ROOT/bin/fm-captain-hold.sh" hold long-call --reason "$hold" >/dev/null 2>&1 || fail "hold failed"
+  printf '%s\n' "$answer" > "$home/answer.txt"
+  in_home "$home" "$ROOT/bin/fm-captain-hold.sh" answer long-call --decision-file "$home/answer.txt" >/dev/null 2>&1 \
+    || fail "answer failed"
+  printf 'done [at=1]: %s\nfailed [at=1]: %s\nblocked [at=1]: %s\n' "$status" "$gone" "$short" > "$home/state/long-work.status"
+  in_home "$home" "$ROOT/bin/fm-fleet-ledger.sh" capture || fail "capture failed"
+  sed -i.bak "s/failed \[at=1\]: .*/failed [at=1]: rewritten/" "$home/state/long-work.status"
+  id=$(in_home "$home" "$ROOT/bin/fm-inbox.sh" note --json -- "$(printf 'log_day=2026-09-24\n%s' "$noted")" \
+    | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])') || fail "note failed"
+  in_home "$home" "$ROOT/bin/fm-inbox.sh" reply "$id" "$reply" >/dev/null 2>&1 || fail "reply failed"
+  printf 'Body.\n' | run_log "$home" learn long-title "$title" >/dev/null || fail "learn failed"
+
+  rec=$(cat "$home/state/fleet-ledger.jsonl")
+  for f in reason words text title; do has "$rec" "\"truncated\":{\"$f\":" "the ledger marks each cut $f"; done
+  has "$rec" " [cut: 2000 of 5000 characters]\"" "the ledger"
+  has "$rec" " [cut: 2000 of 2600 characters]\"" "the ledger"
+  python3 - "$home/state/fleet-ledger.jsonl" <<'PY' || fail "a ledger text member broke its cap or a short one changed"
+import json, re, sys
+for line in open(sys.argv[1]):
+    r = json.loads(line)
+    for f in ("reason", "words", "text", "title"):
+        v = r.get(f)
+        if isinstance(v, str):
+            m = re.search(r" \[cut: 2000 of (\d+) characters\]$", v)
+            assert (m and len(v) == 2000 + len(m.group(0)) and r["truncated"][f] == int(m.group(1))) \
+                or (not m and len(v) <= 2000 and f not in (r.get("truncated") or {})), (f, len(v))
+PY
+  lacks "$(grep shortword "$home/state/fleet-ledger.jsonl")" "truncated" "a record under the cap"
+
+  run_log "$home" sync >/dev/null 2>&1 || fail "sync failed"
+  day=$(date -u +%Y-%m-%d)
+  note=$(cat "$(day_note "$home" "$day")" "$(day_note "$home" 2026-09-24)" 2>/dev/null)
+  for want in "$hold" "$answer" "$status" "$noted" "$reply" "$title" "$short"; do
+    has "$note" "$want" "the day note, full text"
+  done
+  lacks "$note" "[cut:" "the day note"
+  has "$note" "${gone:0:1999} (cut at 2000 characters; full text unavailable)" "a record whose source is gone"
+
+  out=$(run_log "$home" recall --task long-call --json --limit 200) || fail "recall failed: $out"
+  has "$out" "ENDholdword" "recall"; has "$out" "ENDanswerword" "recall"
+  out=$(run_log "$home" recall --task long-work --json --limit 200) || fail "recall failed: $out"
+  has "$out" "ENDstatusword" "recall"
+  out=$(run_log "$home" recall titleword --json --limit 200) || fail "recall failed: $out"
+  has "$out" "ENDtitleword" "recall"
+  python3 - "$home/state/.log-index.db" <<'PY' || fail "the recall index lacks a restored full text"
+import sqlite3, sys
+body = " ".join(r[0] + " " + r[1] for r in sqlite3.connect(sys.argv[1]).execute("SELECT what, answer FROM rows"))
+for w in ("holdword", "answerword", "statusword", "noteword", "replyword", "titleword"):
+    assert "END" + w in body, w
+assert "(cut at 2000 characters; full text unavailable)" in body
+PY
+  pass "cut ledger fields render and index in full from their sources, with a visible suffix when the source is gone"
+}
+
+test_lines_rendered_from_cut_fields_are_repaired_in_place() {
+  local home status note before
+  home=$(make_home cut-repair)
+  snapshot "$home"
+  status=$(long_text legacyword 3000)
+  printf 'done [at=1]: %s\n' "$status" > "$home/state/legacy.status"
+  ledger "$home" "$(python3 -c 'import json,sys; print(json.dumps({"v":1,"ts":int(sys.argv[2]),"event":"task.status","task":"legacy","state":"done","key":None,"text":(" "+sys.argv[1])[:2000]}))' "$status" "$T0")"
+  printf '1\n' > "$home/state/.log-repair"
+  mv "$home/state/legacy.status" "$home/legacy.status"
+  run_log "$home" sync >/dev/null 2>&1 || fail "first sync failed"
+  note=$(day_note "$home" 2026-09-24)
+  before=$(cat "$note")
+  lacks "$before" "ENDlegacyword" "a line rendered while its source was away"
+  mv "$home/legacy.status" "$home/state/legacy.status"
+  rm -f "$home/state/.log-repair"
+  run_log "$home" sync >/dev/null 2>&1 || fail "repair sync failed"
+  has "$(cat "$note")" "Finished: legacy - $status %% fm:" "the repaired line keeps its place and anchor"
+  assert_equals 1 "$(grep -c legacyword "$note")" "the repaired line is not duplicated"
+  pass "a line rendered from a cut record is restored in place when its source has the full text"
+}
+
 test_events_render_golden_day_note_and_replay_is_a_noop
 test_queue_view_renders_from_the_snapshot
 test_long_text_renders_whole_everywhere
@@ -508,3 +604,5 @@ test_off_unreachable_and_foreign_owner_refuse
 test_enable_turns_on_the_ledger_and_lays_out_the_log
 test_start_defaults_on_and_honors_off_and_a_folder
 test_wait_bounds_a_non_quiet_sync
+test_cut_ledger_fields_resolve_from_their_sources
+test_lines_rendered_from_cut_fields_are_repaired_in_place

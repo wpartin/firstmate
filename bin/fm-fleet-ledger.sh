@@ -167,12 +167,19 @@ load_libs() {
 }
 
 # append <event> <task> <jq-object-of-extra-members> [jq --arg pairs...]
-# An empty <task> is written as null.
+# An empty <task> is written as null. capped(<field>; <text>) is the text member
+# docs/fleet-ledger.md defines: whole when it fits, else the first TEXT_MAX_CHARS
+# characters plus a visible suffix and a `truncated` member naming its full length.
 append() {
   local event=$1 task=$2 extra=$3 line
   shift 3
   line=$(jq -cn --arg event "$event" --arg task "$task" "$@" \
-    "def n: if . == \"\" then null else . end; {v: 1, ts: (now | floor), event: \$event, task: (\$task | n)} + ($extra)") \
+    "def n: if . == \"\" then null else . end;
+     def capped(\$f; \$s): if (\$s | length) > $TEXT_MAX_CHARS
+       then {(\$f): (\$s[0:$TEXT_MAX_CHARS] + \" [cut: $TEXT_MAX_CHARS of \(\$s | length) characters]\"),
+             truncated: {(\$f): (\$s | length)}}
+       else {(\$f): \$s} end;
+     {v: 1, ts: (now | floor), event: \$event, task: (\$task | n)} + ($extra)") \
     || return 1
   printf '%s\n' "$line" >> "$LEDGER"
 }
@@ -186,7 +193,7 @@ append_status() { # <task> <status-line>
   [ "$key" != default ] || key=''
   text=${line#*:}
   append task.status "$task" \
-    "{state: (\$state | n), key: (\$key | n), text: \$text[0:$TEXT_MAX_CHARS]}" \
+    "{state: (\$state | n), key: (\$key | n)} + capped(\"text\"; \$text)" \
     --arg state "$verb" --arg key "$key" --arg text "$text"
 }
 
@@ -262,23 +269,23 @@ case "$cmd" in
     [ "$rc" -ne 0 ] || rm -f -- "$(offset_path "$2")"
     ;;
   held)
-    append captain.held "$2" '{reason: $reason[0:'"$TEXT_MAX_CHARS"'], until: ($until | n)}' \
+    append captain.held "$2" 'capped("reason"; $reason) + {until: ($until | n)}' \
       --arg reason "$3" --arg until "${4:-}" || rc=1
     ;;
   answered)
-    append captain.answered "$2" '{mode: $mode, source: ($source | n), words: $words[0:'"$TEXT_MAX_CHARS"']}' \
+    append captain.answered "$2" '{mode: $mode, source: ($source | n)} + capped("words"; $words)' \
       --arg mode "$3" --arg source "$4" --arg words "$5" || rc=1
     ;;
   noted)
-    append inbox.noted "$3" '{note: $note, log_day: ($day | n), thread: ($thread | n), text: $text[0:'"$TEXT_MAX_CHARS"']}' \
+    append inbox.noted "$3" '{note: $note, log_day: ($day | n), thread: ($thread | n)} + capped("text"; $text)' \
       --arg note "$2" --arg day "$4" --arg thread "$5" --arg text "$6" || rc=1
     ;;
   replied)
-    append inbox.replied "" '{note: $note, text: $text[0:'"$TEXT_MAX_CHARS"']}' \
+    append inbox.replied "" '{note: $note} + capped("text"; $text)' \
       --arg note "$2" --arg text "$3" || rc=1
     ;;
   learning)
-    append learning.filed "" '{slug: $slug, title: $title[0:'"$TEXT_MAX_CHARS"']}
+    append learning.filed "" '{slug: $slug} + capped("title"; $title)
        + (($sources | try fromjson catch null) as $s
           | def names($k): ($s[$k] | select(type == "array") | map(select(type == "string" and . != "") | .[0:120]) | select(length > 0));
           if ($s | type) == "object" then

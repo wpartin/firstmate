@@ -52,13 +52,14 @@ It is written each time firstmate records a PR for the task, so registering a re
 
 `task.status` members: `state` is the status line's leading word, such as `working`, `needs-decision`, `blocked`, `paused`, `done`, `failed`, or `resolved`, or `null` when the line has none.
 `key` is the line's `[key=...]` decision key, or `null`.
-`text` is the status line after its first colon, verbatim, capped at 2000 characters; if the line has no colon, it is the whole line.
+`text` is the status line after its first colon, verbatim, capped as described in [Limits on text](#limits-on-text); if the line has no colon, it is the whole line.
 
-`captain.held` members: `reason` is the hold reason, capped at 2000 characters; `until` is the `YYYY-MM-DD` deferral date or `null`.
+`captain.held` members: `reason` is the hold reason, capped; `until` is the `YYYY-MM-DD` deferral date or `null`.
 
-`captain.answered` members: `mode` is `answered`, `released`, `repaired`, or `reconciled`; `source` is the answering channel's provenance text, or `null` for a direct answer; `words` is the captain's answer (for a `reconciled` record, the reconciliation evidence), capped at 2000 characters.
+`captain.answered` members: `mode` is `answered`, `released`, `repaired`, or `reconciled`; `source` is the answering channel's provenance text, or `null` for a direct answer; `words` is the captain's answer (for a `reconciled` record, the reconciliation evidence), capped.
 
-`inbox.noted` members: `note` is the note id; `log_day`, `thread` are the note body's `log_day=` and `thread=` lines, or `null`; `text` is the note body, capped at 2000 characters.
+`inbox.noted` members: `note` is the note id; `log_day`, `thread` are the note body's `log_day=` and `thread=` lines, or `null`; `text` is the note body, capped.
+`inbox.replied`'s `text` and `learning.filed`'s `title` are capped the same way.
 
 Example:
 
@@ -71,7 +72,19 @@ Example:
 {"v":1,"ts":1790133960,"event":"task.cleaned_up","task":"fix-login"}
 ```
 
-## Limits
+## Limits on text
+
+The text members `task.status` `text`, `captain.held` `reason`, `captain.answered` `words`, `inbox.noted` `text`, `inbox.replied` `text`, and `learning.filed` `title` keep at most 2000 characters of the original.
+A value longer than that is cut, and the cut is marked twice so no reader can miss it:
+
+- the member holds the first 2000 characters followed by the visible suffix ` [cut: 2000 of <N> characters]`, where `<N>` is the original length in characters;
+- the record gains a `truncated` member, an object mapping the cut member's name to that same length, for example `"truncated":{"words":5000}`.
+
+A value that fits is stored whole with no suffix and no `truncated` member.
+Records written before this marker existed carry neither, so a value of exactly 2000 characters in one of them may have been cut.
+The full text stays at its source: the backlog task (hold reason and recorded answer), the task's status log, the inbox note or reply file, and the learning note.
+The [captain's log](captains-log.md) restores it from there automatically.
+
 
 - A worker using the current status command in its instructions records its line immediately after appending it, while the ledger is enabled.
   The supervision monitor's regular poll is the backstop: it records any line the immediate write missed, and does not record again a line that write already recorded.

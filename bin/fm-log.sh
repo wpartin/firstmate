@@ -260,7 +260,7 @@ stage_snapshot() {
 
 # Update the recall index under the held log lock; a failure leaves the stale marker.
 update_index() {  # <root> <snapshot> <rebuild 0|1>
-  if python3 "$PY" index "$1" "$CONFIG" "$DATA" "$LEDGER" "$INDEX_DB" "$2" "$3" 2>/dev/null; then
+  if FM_HOME=$FM_HOME FM_DATA_OVERRIDE=$DATA python3 "$PY" index "$1" "$CONFIG" "$DATA" "$LEDGER" "$INDEX_DB" "$2" "$3" 2>/dev/null; then
     rm -f -- "$INDEX_STALE"
     return 0
   fi
@@ -289,10 +289,10 @@ do_sync() {  # <quiet 0|1> <wait-seconds>
   snap=$(stage_snapshot) || { fm_lock_release "$LOCK"; die "cannot stage the snapshot"; }
   generated=$(date '+%Y-%m-%d %H:%M')
   if [ "$quiet" = 1 ]; then
-    python3 "$PY" sync "$root" "$CONFIG" "$LEDGER" "$CURSOR" "$snap" "$(board_target "$root")" "$(today)" "$generated" >/dev/null 2>&1
+    FM_HOME=$FM_HOME FM_DATA_OVERRIDE=$DATA python3 "$PY" sync "$root" "$CONFIG" "$LEDGER" "$CURSOR" "$snap" "$(board_target "$root")" "$(today)" "$generated" >/dev/null 2>&1
     rc=$?
   else
-    python3 "$PY" sync "$root" "$CONFIG" "$LEDGER" "$CURSOR" "$snap" "$(board_target "$root")" "$(today)" "$generated" 2>/dev/null
+    FM_HOME=$FM_HOME FM_DATA_OVERRIDE=$DATA python3 "$PY" sync "$root" "$CONFIG" "$LEDGER" "$CURSOR" "$snap" "$(board_target "$root")" "$(today)" "$generated" 2>/dev/null
     rc=$?
   fi
   [ "$rc" -ne 0 ] || update_index "$root" "$snap" 0
