@@ -1713,9 +1713,11 @@ def cmd_recall(args):
     parser.add_argument("--days", type=int, default=7)
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--recent", action="store_true")
+    parser.add_argument("--mentions")
     parser.add_argument("--for", dest="audience", choices=("brief", "captain", "board", "threads"))
     brief = any(a in ("--for=brief", "--for=threads") for a in args) or any(
-        a == "--for" and b in ("brief", "threads") for a, b in zip(args, args[1:]))
+        a == "--for" and b in ("brief", "threads") for a, b in zip(args, args[1:])) or any(
+        a == "--mentions" or a.startswith("--mentions=") for a in args)
     try:
         opts = parser.parse_args(args)
     except SystemExit:
@@ -1723,7 +1725,10 @@ def cmd_recall(args):
     try:
         if opts.limit < 5 or opts.days < 1:
             raise ValueError("--limit must be at least 5 and --days at least 1")
-        if not (opts.terms or opts.ticket or opts.project or opts.person or opts.task or opts.recent):
+        if opts.mentions is not None and (opts.terms or opts.recent):
+            raise ValueError("--mentions takes no terms or --recent")
+        if not (opts.terms or opts.ticket or opts.project or opts.person or opts.task or opts.recent
+                or opts.mentions is not None):
             raise ValueError("recall needs terms, an entity flag, or --recent")
         if not os.path.isfile(opts.db):
             raise LookupError("the recall index is not built yet; run fm-log.sh index")
@@ -1733,6 +1738,14 @@ def cmd_recall(args):
         if os.path.exists(opts.stale) and not stale:
             stale = datetime.datetime.fromtimestamp(os.path.getmtime(opts.stale)).strftime("%Y-%m-%d %H:%M")
         rc = Recall(conn, Config(opts.config), opts.today)
+        if opts.mentions is not None:
+            tickets, tasks, people = exact_mentions(rc, opts.mentions)
+            opts.ticket += tickets
+            opts.task += tasks
+            opts.person += people
+            if not (opts.ticket or opts.project or opts.person or opts.task):
+                conn.close()
+                return 0
         if opts.audience == "threads":
             text = "" if stale or not opts.recent else recent_threads(rc, opts)
             conn.close()
@@ -1807,11 +1820,13 @@ def cmd_export(args):
     return 0
 
 
-def cmd_entities(args):
-    """Suggest configured ticket ids and registered people found verbatim in text; records nothing."""
-    config_dir, text = args
-    cfg = Config(config_dir)
-    tickets = [t for t in cfg.ticket_ids(text) if re.search(r"(?<!\w)%s(?!\w)" % re.escape(t), text, re.I)]
+def verbatim_tickets(cfg, text):
+    """Configured ticket ids that appear as whole words in text."""
+    return [t for t in cfg.ticket_ids(text) if re.search(r"(?<!\w)%s(?!\w)" % re.escape(t), text, re.I)]
+
+
+def verbatim_people(cfg, text):
+    """(canonical, as said) for each registered person or alias named verbatim in text, first mention first."""
     hits = []
     for said, canon in [(n, n) for n in sorted(cfg.people or ())] + cfg.aliases:
         m = re.search(r"(?<!\w)%s(?!\w)" % re.escape(said), text)
@@ -1821,6 +1836,22 @@ def cmd_entities(args):
     for _, canon, said in sorted(hits):
         if canon not in [c for c, _ in people]:
             people.append((canon, said))
+    return people
+
+
+def exact_mentions(rc, text):
+    """(tickets, task ids, people) named exactly in text: configured tickets, logged task ids, registered people."""
+    tasks = [t for (t,) in rc.conn.execute("SELECT task FROM tasks ORDER BY task")
+             if t and re.search(r"(?<![\w-])%s(?![\w-])" % re.escape(t), text)]
+    return verbatim_tickets(rc.cfg, text), tasks, [c for c, _ in verbatim_people(rc.cfg, text)]
+
+
+def cmd_entities(args):
+    """Suggest configured ticket ids and registered people found verbatim in text; records nothing."""
+    config_dir, text = args
+    cfg = Config(config_dir)
+    tickets = verbatim_tickets(cfg, text)
+    people = verbatim_people(cfg, text)
     print("tickets[%d]:%s" % (len(tickets), (" " + ",".join(toon_value(t) for t in tickets)) if tickets else ""))
     print("people[%d]{name,said}:" % len(people))
     for canon, said in people:
