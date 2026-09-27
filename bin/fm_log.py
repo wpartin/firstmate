@@ -13,10 +13,12 @@ Rules it keeps:
     replay from an older cursor is a no-op.
   - An entry lands in the day note of its record's timestamp (local time), so
     work after midnight belongs to the new day by construction.
-  - Past days are only ever amended by inserting lines; only the current day's
-    board link and "Open at close" section are recomputed.
+  - Past days are only ever amended by inserting lines, or by restoring in place
+    a firstmate-anchored line an older renderer cut short with "…" to the full
+    text it is a prefix of; only the current day's board link and "Open at
+    close" section are recomputed.
   - Worker status text is untrusted: it is flattened to one line, stripped of
-    link and comment syntax, capped, and only terminal or decision states are
+    link and comment syntax, kept whole, and only terminal or decision states are
     rendered. Worker report bodies are never copied.
   - Every file is written through a temporary file and a rename.
 """
@@ -32,8 +34,12 @@ SECTIONS = ("Carried over", "Worked through", "Asked and answered", "Open at clo
 BOARD_LINE = re.compile(r"^\[Captain's board\]\(")
 ANCHOR = "%% fm:{} %%"
 STATUS_STATES = ("done", "failed", "blocked", "needs-decision")
-TEXT_CAP = 200
 QUEUED_SHOWN = 15
+# Bump to rerun the one-time repair of lines older renderers cut short.
+REPAIR_VERSION = "1"
+# Where older renderers cut: fm_log clean() kept cap-1 characters, the fleet snapshot's jq trunc kept n.
+REPAIR_CLEAN_CAPS = (90, 200)
+REPAIR_TRUNC_CAPS = (70, 90, 120, 160)
 DONE_SHOWN = 12
 
 
@@ -122,14 +128,12 @@ class Config:
         return out
 
 
-def clean(text, cfg, cap=TEXT_CAP):
-    """Untrusted text flattened to one safe Markdown line."""
+def clean(text, cfg):
+    """Untrusted text flattened to one safe Markdown line, kept whole: the log is a durable record."""
     text = re.sub(r"\s+", " ", text or "").strip()
     text = text.replace("%%", "%").replace("[[", "[").replace("]]", "]")
     for rx in cfg.redact:
         text = rx.sub("[redacted]", text)
-    if len(text) > cap:
-        text = text[: cap - 1].rstrip() + "…"
     return text
 
 
@@ -307,8 +311,13 @@ class Log:
     # ---- links ------------------------------------------------------------
     def title(self, task):
         row = self.rows.get(task) or {}
-        name = row.get("title") or (self.inflight.get(task) or {}).get("name") or task
-        return clean(name, self.cfg, 90)
+        flight = self.inflight.get(task) or {}
+        name = row.get("title") or flight.get("name_full") or flight.get("name") or task
+        return clean(name, self.cfg)
+
+    def flight_text(self, r):
+        """An in-flight row's full title: its backlog row, then the snapshot's untruncated name."""
+        return self.linked(self.title(r.get("id") or "") if r.get("id") else clean(r.get("name_full") or r.get("name"), self.cfg))
 
     def linked(self, text, tickets=()):
         for tid in list(tickets) + self.cfg.ticket_ids(text):
@@ -322,7 +331,7 @@ class Log:
         project = known.get("project") or row.get("repo") or ""
         tickets = []
         for tid in list(known.get("tickets") or []) + list(row.get("tickets") or []):
-            tid = clean(tid, self.cfg, 80).upper()
+            tid = clean(tid, self.cfg).upper()
             if tid and tid not in tickets:
                 tickets.append(tid)
         inferred = not tickets
@@ -357,9 +366,9 @@ class Log:
             header = ["# " + tid, ""] + (["[Open in the tracker](%s)" % url, ""] if url else [])
             self.side_note("tickets", tid, header, line, aid)
         if project:
-            self.side_note("projects", project, ["# " + clean(project, self.cfg, 80), ""], line, aid)
+            self.side_note("projects", project, ["# " + clean(project, self.cfg), ""], line, aid)
         for person in people:
-            self.side_note("people", person, ["# " + clean(person, self.cfg, 80), ""], line, aid)
+            self.side_note("people", person, ["# " + clean(person, self.cfg), ""], line, aid)
 
     # ---- events -----------------------------------------------------------
     def render(self, rec, eid):
@@ -414,13 +423,13 @@ class Log:
         self.fan_out(task, when, label, detail, eid)
 
     def on_task_pr_ready(self, rec, eid, day, stamp, task, when):
-        url = clean(rec.get("pr"), self.cfg, 300)
+        url = clean(rec.get("pr"), self.cfg)
         text = "Ready for review: %s %s" % (self.task_title(task), url)
         self.worked(day, stamp, text, eid)
         self.fan_out(task, when, "Ready for review", url, eid)
 
     def on_task_merged(self, rec, eid, day, stamp, task, when):
-        url = clean(rec.get("pr"), self.cfg, 300) if rec.get("via") == "pr" else ""
+        url = clean(rec.get("pr"), self.cfg) if rec.get("via") == "pr" else ""
         text = "Landed %s%s" % (self.task_title(task), (" " + url) if url else " on the local branch")
         self.worked(day, stamp, text, eid)
         self.fan_out(task, when, "Landed", url or "on the local branch", eid)
@@ -436,15 +445,15 @@ class Log:
         if rec.get("until"):
             found = self.find_anchor(ANCHOR.format(eid))
             if found:
-                self.insert_child(found[0], found[1], "deferred to [[%s]]" % clean(rec["until"], self.cfg, 10))
+                self.insert_child(found[0], found[1], "deferred to [[%s]]" % clean(rec["until"], self.cfg))
         self.fan_out(task, when, "Asked", reason, eid)
 
     def on_captain_answered(self, rec, eid, day, stamp, task, when):
         if self.find_anchor(ANCHOR.format(eid)):
             return
-        words = clean(rec.get("words"), self.cfg, 1000)
+        words = clean(rec.get("words"), self.cfg)
         mode = rec.get("mode")
-        source = clean(rec.get("source"), self.cfg, 60)
+        source = clean(rec.get("source"), self.cfg)
         if mode == "reconciled":
             line = "checked: moot - %s" % words
         elif mode == "released":
@@ -473,7 +482,7 @@ class Log:
             return
         body = [l for l in (rec.get("text") or "").splitlines()
                 if not re.match(r"^(log_day|task|thread|question|log_note)=", l)]
-        text = clean(" ".join(body), self.cfg, 1000)
+        text = clean(" ".join(body), self.cfg)
         line = "%s %s" % (text, ANCHOR.format("note:" + note))
         thread = rec.get("thread")
         parent = self.find_anchor(ANCHOR.format("note:" + thread)) if thread else None
@@ -489,11 +498,11 @@ class Log:
         if not found:
             return
         self.insert_child(found[0], found[1], "firstmate: %s %s" % (
-            clean(rec.get("text"), self.cfg, 1000), ANCHOR.format(eid)))
+            clean(rec.get("text"), self.cfg), ANCHOR.format(eid)))
 
     def on_learning_filed(self, rec, eid, day, stamp, task, when):
         slug = safe_name(rec.get("slug") or "")
-        title = clean(rec.get("title"), self.cfg, 120)
+        title = clean(rec.get("title"), self.cfg)
         self.worked(day, stamp, "Learned [[%s|%s]]" % (slug, title), eid)
         sources = learning_sources(rec.get("sources"), self.cfg)
         line = "%s Learned [[%s|%s]]" % (when.strftime("%Y-%m-%d %H:%M"), slug, title)
@@ -503,6 +512,82 @@ class Log:
             self.side_note("tickets", tid, header, line, eid)
         for project in sources["projects"]:
             self.side_note("projects", project, ["# " + project, ""], line, eid)
+
+    # ---- repair -----------------------------------------------------------
+    def full_texts(self, ledger):
+        """Every full text a rendered line may have shortened: backlog rows, in-flight rows, and ledger fields."""
+        raw = []
+        for r in self.rows.values():
+            raw += [r.get("title"), r.get("hold_reason")]
+        for r in self.inflight.values():
+            raw += [r.get("name_full"), r.get("doing_full")]
+        if ledger and os.path.isfile(ledger):
+            with open(ledger, "rb") as fh:
+                for line in fh:
+                    try:
+                        rec = json.loads(line.decode("utf-8"))
+                    except (ValueError, UnicodeDecodeError):
+                        continue
+                    if isinstance(rec, dict):
+                        raw += [rec.get(k) for k in ("reason", "text", "words", "title")]
+        out = {}
+        for text in raw:
+            if isinstance(text, str):
+                text = clean(text, self.cfg)
+                for full in (text, self.linked(text)):
+                    cuts = {full[: cap - 1].rstrip() for cap in REPAIR_CLEAN_CAPS}
+                    cuts |= {full[:cap] for cap in REPAIR_TRUNC_CAPS}
+                    for cut in cuts:
+                        if cut and cut != full:
+                            out.setdefault(cut + "…", set()).add(full)
+        return out
+
+    @staticmethod
+    def repair_line(line, texts):
+        """Rewrite each `<prefix>…` an older renderer cut from exactly one full text into that text; anything else stays."""
+        pos = 0
+        while True:
+            i = line.find("…", pos)
+            if i < 0:
+                return line
+            best = None
+            for cut, fulls in texts.items():
+                if line.endswith(cut, 0, i + 1) and len(fulls) == 1 and (best is None or len(cut) > len(best[0])):
+                    best = (cut, next(iter(fulls)))
+            if best is None:
+                pos = i + 1
+                continue
+            cut, full = best
+            start = i + 1 - len(cut)
+            line = line[:start] + full + line[i + 1:]
+            pos = start + len(full)
+
+    def repair(self, ledger):
+        """Restore firstmate-rendered lines an older renderer cut short, in place with their anchors and positions."""
+        texts = None
+        for folder, dirs, files in os.walk(self.root):
+            dirs[:] = [d for d in dirs if d != "attachments" and not d.startswith(".")]
+            for name in files:
+                path = os.path.join(folder, name)
+                if not name.endswith(".md") or path == os.path.join(self.root, "queue.md"):
+                    continue
+                if path not in self.files and "…" not in (read(path) or ""):
+                    continue
+                lines = self.load(path)
+                if not lines:
+                    continue
+                changed = False
+                for n, line in enumerate(lines):
+                    anchors = FM_ANCHOR.findall(line)
+                    if "…" not in line or not anchors or any(a.startswith("manual:") for a in anchors):
+                        continue
+                    if texts is None:
+                        texts = self.full_texts(ledger)
+                    fixed = self.repair_line(line, texts)
+                    if fixed != line:
+                        lines[n], changed = fixed, True
+                if changed:
+                    self.store(path, lines)
 
     # ---- computed views ---------------------------------------------------
     def open_items(self):
@@ -517,11 +602,11 @@ class Log:
             if r.get("state") != "done" and r.get("blocked_by") and r.get("hold_bucket") in (None, "blocked"):
                 out.append("- Blocked: %s (by %s)" % (self.row_text(r), ", ".join(r["blocked_by"])))
         for r in self.snapshot.get("in_flight", []) or []:
-            out.append("- In flight: %s" % self.linked(clean(r.get("name") or r.get("id"), self.cfg, 90)))
+            out.append("- In flight: %s" % self.flight_text(r))
         return out
 
     def row_text(self, r):
-        return self.linked(clean(r.get("title") or r.get("id"), self.cfg, 90))
+        return self.linked(clean(r.get("title") or r.get("id"), self.cfg))
 
     def refresh_today(self):
         path = self.day(self.today)
@@ -573,8 +658,8 @@ class Log:
         section("Blocked", ["- %s\n  blocked by %s" % (self.row_text(r), ", ".join(r["blocked_by"])) for r in blocked])
         flight = []
         for r in self.snapshot.get("in_flight", []) or []:
-            extra = " ".join(x for x in (clean(r.get("doing"), self.cfg), prs.get(r["id"], "")) if x)
-            flight.append("- %s%s" % (self.linked(clean(r.get("name") or r["id"], self.cfg, 90)),
+            extra = " ".join(x for x in (clean(r.get("doing_full") or r.get("doing"), self.cfg), prs.get(r["id"], "")) if x)
+            flight.append("- %s%s" % (self.flight_text(r),
                                       ("\n  " + extra) if extra else ""))
         section("In flight", flight)
         section("Deferred", ["- until [[%s]]: %s" % (r["hold_until"], self.row_text(r)) for r in dated])
@@ -632,9 +717,14 @@ def cmd_sync(args):
             log.render(rec, eid)
             rendered += 1
         new_offset = offset + len(complete)
+    repair_path = os.path.join(os.path.dirname(cursor_path), ".log-repair")
+    has_fleet = snapshot is not None and snapshot.get("queue") is not None
+    if has_fleet and (read(repair_path) or "").strip() != REPAIR_VERSION:
+        log.repair(ledger)
+        write_atomic(repair_path, REPAIR_VERSION + "\n")
     today_path = log.refresh_today()
     queue_path = os.path.join(root, "queue.md")
-    if snapshot is not None and snapshot.get("queue") is not None:
+    if has_fleet:
         text = log.queue_md(generated)
         if read(queue_path) != text + "\n":
             write_atomic(queue_path, text + "\n")
@@ -664,7 +754,7 @@ def cmd_add(args):
     stamp = datetime.datetime.now().strftime("%H:%M") if section == "worked" else ""
     aid = "manual:" + hashlib.sha1((today + section + text).encode()).hexdigest()[:12]
     if not log.has_anchor(path, aid):
-        body = clean(text, log.cfg, 1000)
+        body = clean(text, log.cfg)
         log.append_bullet(path, name, ("%s %s" % (stamp, body)).strip() + " " + ANCHOR.format(aid))
     log.flush()
     print(path)
@@ -677,7 +767,7 @@ def cmd_ticket(args):
     header = ["# " + tid, ""] + (["[Open in the tracker](%s)" % url, ""] if url else [])
     stamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
     aid = "manual:" + hashlib.sha1((tid + text).encode()).hexdigest()[:12]
-    log.side_note("tickets", tid, header, "%s %s" % (stamp, clean(text, log.cfg, 1000)), aid)
+    log.side_note("tickets", tid, header, "%s %s" % (stamp, clean(text, log.cfg)), aid)
     log.flush()
     print(os.path.join(root, "tickets", safe_name(tid) + ".md"))
 
@@ -692,7 +782,7 @@ def learning_sources(value, cfg):
         return out
     for key in SOURCE_KEYS:
         for name in value.get(key) if isinstance(value.get(key), list) else []:
-            name = clean(name, cfg, 80) if isinstance(name, str) else ""
+            name = clean(name, cfg) if isinstance(name, str) else ""
             name = name.upper() if key == "tickets" else name
             if name and name not in out[key]:
                 out[key].append(name)
@@ -759,7 +849,7 @@ def cmd_unresolved(args):
 
 # ---- recall index: derived and disposable, `index --rebuild` recreates it ----
 
-INDEX_SCHEMA = "3"
+INDEX_SCHEMA = "4"
 # A ticket matched only from a task title or id counts for less than one filed in its ticket: field.
 INFERRED_WEIGHT = 0.5
 GROUP_WEIGHT = {"decision": 5.0, "learning": 4.0, "outcome": 3.0, "report": 3.0, "timeline": 1.0}
@@ -884,11 +974,11 @@ class Indexer:
         old_t, old_p = self.conn.execute("SELECT tickets, people FROM tasks WHERE task=?", (task,)).fetchone()
         merged_t = [t for t in (old_t or "").split("\n") if t]
         for tid in tickets or []:
-            tid = clean(tid, self.cfg, 80).upper() if isinstance(tid, str) else ""
+            tid = clean(tid, self.cfg).upper() if isinstance(tid, str) else ""
             if tid and tid not in merged_t:
                 merged_t.append(tid)
         merged_p = [p for p in (old_p or "").split("\n") if p]
-        for person in self.cfg.persons([clean(p, self.cfg, 80) for p in people or [] if isinstance(p, str)]):
+        for person in self.cfg.persons([clean(p, self.cfg) for p in people or [] if isinstance(p, str)]):
             if person not in merged_p:
                 merged_p.append(person)
         self.conn.execute("UPDATE tasks SET tickets=?, people=? WHERE task=?",
@@ -923,16 +1013,16 @@ class Indexer:
         task = str(rec.get("task") or "")
         day = day_of(ts)
         cite = self.day_cite(day, eid)
-        c = lambda text, cap=TEXT_CAP: clean(text, self.cfg, cap)
+        c = lambda text: clean(text, self.cfg)
         if self.conn.execute("SELECT 1 FROM rows WHERE uid=?", (eid,)).fetchone():
             return
         if event == "task.dispatched":
-            project = c(rec.get("project"), 80)
+            project = c(rec.get("project"))
             self.task_seen(task, project)
             if task:
                 self.task_fields(task, rec.get("tickets") if isinstance(rec.get("tickets"), list) else [],
                                  rec.get("people") if isinstance(rec.get("people"), list) else [])
-            kind = c(rec.get("kind"), 20)
+            kind = c(rec.get("kind"))
             what = "Started" + ((" " + kind) if kind and kind != "ship" else "") + ((" in " + project) if project else "")
             self.put_row(eid, "timeline", ts, task, what, cite, "ledger")
         elif event == "task.status" and rec.get("state") in STATUS_STATES:
@@ -944,20 +1034,20 @@ class Indexer:
             self.put_row(eid, kind, ts, task, label + ((" - " + detail) if detail else ""), cite, "ledger")
         elif event == "task.pr_ready":
             self.task_seen(task)
-            self.put_row(eid, "outcome", ts, task, "Ready for review " + c(rec.get("pr"), 300), cite, "ledger")
+            self.put_row(eid, "outcome", ts, task, "Ready for review " + c(rec.get("pr")), cite, "ledger")
         elif event == "task.merged":
             self.task_seen(task)
-            url = c(rec.get("pr"), 300) if rec.get("via") == "pr" else ""
+            url = c(rec.get("pr")) if rec.get("via") == "pr" else ""
             self.put_row(eid, "outcome", ts, task, "Landed " + (url or "on the local branch"), cite, "ledger")
         elif event == "captain.held":
             self.task_seen(task)
-            until = c(rec.get("until"), 10)
-            self.put_row(eid, "decision", ts, task, c(rec.get("reason"), 1000), cite, "ledger",
+            until = c(rec.get("until"))
+            self.put_row(eid, "decision", ts, task, c(rec.get("reason")), cite, "ledger",
                          state=("deferred to " + until) if until else "held")
         elif event == "captain.answered":
             self.task_seen(task)
-            words = c(rec.get("words"), 1000)
-            mode = c(rec.get("mode"), 20) or "answered"
+            words = c(rec.get("words"))
+            mode = c(rec.get("mode")) or "answered"
             row = self.conn.execute(
                 "SELECT id FROM rows WHERE kind='decision' AND task=? AND src='ledger' AND answer='' "
                 "ORDER BY ts DESC, id DESC LIMIT 1", (task,)).fetchone()
@@ -967,14 +1057,14 @@ class Indexer:
             else:
                 self.put_row(eid, "decision", ts, task, "", cite, "ledger", answer=words, state=mode)
         elif event == "inbox.noted" and rec.get("log_day"):
-            note = c(rec.get("note"), 80)
+            note = c(rec.get("note"))
             body = [l for l in (rec.get("text") or "").splitlines()
                     if not re.match(r"^(log_day|task|thread|question|log_note)=", l)]
-            log_day = c(rec.get("log_day"), 10)
+            log_day = c(rec.get("log_day"))
             day_cite = self.day_cite(log_day, "note:" + note) if re.fullmatch(r"\d{4}-\d{2}-\d{2}", log_day) else cite
-            self.put_row(eid, "timeline", ts, task, "Noted: " + c(" ".join(body), 1000), day_cite, "ledger", private=1)
+            self.put_row(eid, "timeline", ts, task, "Noted: " + c(" ".join(body)), day_cite, "ledger", private=1)
         elif event == "inbox.replied":
-            self.put_row(eid, "timeline", ts, task, "Replied: " + c(rec.get("text"), 1000), cite, "ledger", private=1)
+            self.put_row(eid, "timeline", ts, task, "Replied: " + c(rec.get("text")), cite, "ledger", private=1)
         elif event == "learning.filed":
             slug = safe_name(rec.get("slug") or "")
             uid = "learning:" + slug
@@ -983,7 +1073,7 @@ class Indexer:
             if row:
                 self.conn.execute("UPDATE rows SET ts=?, src='ledger' WHERE uid=?", (ts, uid))
             else:
-                row = (self.put_row(uid, "learning", ts, "", c(rec.get("title"), 120),
+                row = (self.put_row(uid, "learning", ts, "", c(rec.get("title")),
                                     "learnings/%s.md#top" % slug, "ledger", links=[]),)
             self.learning_links(row[0], sources)
 
@@ -1054,7 +1144,7 @@ class Indexer:
                 para.append(line.strip())
             elif para:
                 break
-        what = clean("Report: " + title + ((" - " + " ".join(para)) if para else ""), self.cfg, 300)
+        what = clean("Report: " + title + ((" - " + " ".join(para)) if para else ""), self.cfg)
         self.put_row("report:" + task, "report", int(mtime), task, what,
                      "data/%s/report.md#top" % task, "report:" + task)
 
@@ -1080,7 +1170,7 @@ class Indexer:
         lines = text.splitlines()
         title = next((l[2:].strip() for l in lines if l.startswith("# ")), slug)
         body = " ".join(l.strip() for l in lines if l.strip() and not l.startswith("#"))
-        title, body = clean(title, self.cfg, 120), clean(body, self.cfg, 600)
+        title, body = clean(title, self.cfg), clean(body, self.cfg)
         row = self.conn.execute("SELECT id FROM rows WHERE uid=?", ("learning:" + slug,)).fetchone()
         if row:
             self.conn.execute("UPDATE rows SET what=?, answer=? WHERE id=?", (title, body, row[0]))
@@ -1127,7 +1217,7 @@ class Indexer:
             elif tm:
                 hour, minute = int(tm.group(1)), int(tm.group(2))
                 body = body[tm.end():].strip()
-            body = clean(body, self.cfg, 300)
+            body = clean(body, self.cfg)
             if not body:
                 continue
             anchor = ("fm:" + anchors[0]) if anchors else "L%d" % n
@@ -1144,15 +1234,15 @@ class Indexer:
             task = str(r.get("id") or "")
             if not task:
                 continue
-            self.task_seen(task, clean(r.get("repo"), self.cfg, 80))
-            self.conn.execute("UPDATE tasks SET title=? WHERE task=?", (clean(r.get("title"), self.cfg, 120), task))
+            self.task_seen(task, clean(r.get("repo"), self.cfg))
+            self.conn.execute("UPDATE tasks SET title=? WHERE task=?", (clean(r.get("title"), self.cfg), task))
             self.task_fields(task, r.get("tickets"), r.get("people"))
         for r in snapshot.get("in_flight") or []:
             task = str(r.get("id") or "")
             if task:
-                self.task_seen(task, clean(r.get("repo"), self.cfg, 80))
+                self.task_seen(task, clean(r.get("repo"), self.cfg))
                 self.conn.execute("UPDATE tasks SET title=? WHERE task=? AND title=''",
-                                  (clean(r.get("name"), self.cfg, 120), task))
+                                  (clean(r.get("name_full") or r.get("name"), self.cfg), task))
         if snapshot.get("queue") is None:
             return
         self.conn.execute("DELETE FROM open")
@@ -1171,7 +1261,7 @@ class Indexer:
                 continue
             last = self.conn.execute("SELECT max(ts) FROM rows WHERE task=?", (task,)).fetchone()[0]
             self.conn.execute("INSERT INTO open(task,state,since) VALUES(?,?,?)",
-                              (task, clean(state, self.cfg, 120), day_of(last) if last else ""))
+                              (task, clean(state, self.cfg), day_of(last) if last else ""))
 
     def registry_names(self):
         projects = []

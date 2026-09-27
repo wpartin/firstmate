@@ -54,9 +54,10 @@ Sections, in order:
 - **Open at close** - computed for the current day from the fleet snapshot (waiting on you, blocked, in flight), plus any items added by hand, so a session that ends without a sign-off still leaves an accurate record.
 
 Entries land in the day of the record's own time, so work after midnight belongs to the new day.
-Past days are only ever amended, never rewritten.
+Past days are only ever amended, never rewritten, with one repair: a one-time pass (run on the first sync that has a fleet snapshot, and rerun only when its version in [`bin/fm_log.py`](../bin/fm_log.py) changes) restores in place, keeping anchor and position, each firstmate-anchored `…` that sits exactly where an older renderer cut and matches exactly one full text; lines written by hand, cut elsewhere, or matching several texts stay as they are.
 Text between `%%` marks is a hidden anchor (an Obsidian comment) firstmate uses to place records exactly once; leave it in place.
-Worker status text is shortened to one line and stripped of link syntax, and worker reports are never copied in.
+Nothing the log records is shortened: task titles, hold reasons, answers, and status notes appear in full, taken from the backlog rows, the ledger, and the snapshot's untruncated in-flight fields rather than the board's shortened display text.
+Worker status text is flattened to one line and stripped of link syntax, and worker reports are never copied in.
 
 ## Queue
 
@@ -106,7 +107,7 @@ Every line carries its date and a citation to the note it came from (`<note path
 Anything left out by the bound is counted on a `more:` line.
 Ticket ids, task ids, registered projects, and people (including `config/log-people` aliases) are matched exactly and shown on a `resolved:` line; the rest of the question is searched as text.
 
-Recall reads a derived index at `state/.log-index.db`, which each sync keeps current from the fleet ledger, the notes (including lines the captain wrote by hand), and the first paragraph of each scout report.
+Recall reads a derived index at `state/.log-index.db`, which each sync keeps current from the fleet ledger, the notes (including lines the captain wrote by hand), and the first paragraph of each scout report, storing every text in full.
 The index is disposable: `bin/fm-log.sh index --rebuild` recreates it, and redacted text never reaches it.
 Emptying the fleet ledger keeps the rows already indexed from it, but a rebuild after that recovers only what the ledger still holds.
 The form given to workers (`--for brief`) carries no note paths and no inbox-note or people-note text.

@@ -1072,7 +1072,9 @@ secondmate_home_summary_json() {  # <backlog-json-file> <tasks-json-file>
             repo:(($work.repo // .project // null) | if . == null then null else trunc(120) end),
             name:(($work.title // null) | if . == null then null else trunc(70) end),
             source:.current_state.source,
-            doing:((.current_state.detail // "") | trunc(120))} ]) as $active_all
+            doing:((.current_state.detail // "") | trunc(120)),
+            name_full:($work.title // null),
+            doing_full:(.current_state.detail // "")} ]) as $active_all
     | ($captain_holds_all
        + ([ $tasks[] as $t | ($t.hints.open_decisions // [])[]
             | {id:$t.id,key,verb,summary:(.summary | trunc(160)),reason:null,source:"status"} ])) as $decisions_all

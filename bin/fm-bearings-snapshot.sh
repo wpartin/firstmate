@@ -79,7 +79,8 @@
 #   --include-prs    ALSO do live GitHub open-PR discovery + checks
 #   --fields <list>  opt in to dropped surfaces: bodies,paths,actions,endpoints,queue
 #                    (queue is the main home's structured backlog rows the
-#                    captain's log and the bearings board bucket from)
+#                    captain's log and the bearings board bucket from; it also
+#                    adds untruncated name_full and doing_full to in_flight rows)
 #   --all-in-flight  include every in-flight task
 #   --all-decisions  include every open decision and captain hold in the bounded snapshot
 #   --all-secondmates include every aggregated secondmate record
@@ -513,7 +514,9 @@ MODEL=$(printf '%s' "$SNAP" | jq \
         name:((.backlog.title // "") as $name
               | (if ($name | test("[^[:space:]]")) then $name else .id end) | trunc(70)),
         doing: ((.current_state.detail // "") as $d
-                | (if $d != "" then $d else (.hints.last_event_text // "") end) | trunc(90))
+                | (if $d != "" then $d else (.hints.last_event_text // "") end) | trunc(90)),
+        name_full:((.backlog.title // "") as $name | if ($name | test("[^[:space:]]")) then $name else .id end),
+        doing_full:((.current_state.detail // "") as $d | if $d != "" then $d else (.hints.last_event_text // "") end)
       } ]
      + [ $secondmate_views[] as $m
          | $m.active_children[]?
@@ -524,7 +527,11 @@ MODEL=$(printf '%s' "$SNAP" | jq \
             name:((.name // "") as $name
                   | (if (($name | type) == "string" and ($name | test("[^[:space:]]")))
                      then $name else ($m.id + "/" + .id) end) | trunc(70)),
-            doing:((.doing // .state) | trunc(90))} ]) as $in_flight_all
+            doing:((.doing // .state) | trunc(90)),
+            name_full:((.name_full // .name // "") as $name
+                       | if (($name | type) == "string" and ($name | test("[^[:space:]]")))
+                         then $name else ($m.id + "/" + .id) end),
+            doing_full:((.doing_full // .doing // .state) | tostring)} ]) as $in_flight_all
   | ([ .backlog.records[]
          | . as $record
          | select(.structured and .hold_bucket != null)
@@ -638,7 +645,8 @@ MODEL=$(printf '%s' "$SNAP" | jq \
            missing_verdicts:([$measured[].missing_verdicts] | add // 0),
            captain_omitted:([$measured[].captain_omitted] | add // 0),
            captain:[$measured[] as $h | $h.captain[]? | . + {owner:$h.owner}]}),
-      in_flight: (if $all_in_flight == 1 then $in_flight_all else $in_flight_all[:$in_flight_n] end),
+      in_flight: ((if $all_in_flight == 1 then $in_flight_all else $in_flight_all[:$in_flight_n] end)
+                  | if $f_queue then . else map(del(.name_full, .doing_full)) end),
       secondmates: (if $all_secondmates == 1 then $secondmates_all else $secondmates_all[:$secondmates_n] end),
       secondmate_reconcile: [ (.secondmate_current.records // [])[]
         | select(.reconcile_inventory != null)
