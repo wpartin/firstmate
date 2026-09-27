@@ -1,0 +1,8 @@
+$ fm-log.sh recall --recent --limit 8 --for threads
+open decisions:
+  pick-colour: waiting on the captain since 2026-09-25, last touch 2026-09-25
+recently touched:
+  project web, last touch 2026-09-26
+  project billing, last touch 2026-09-24
+  ticket ENG-12, last touch 2026-09-24
+rc=0
