@@ -125,6 +125,9 @@ Firstmate sees relevant history at the moments it acts, without having to rememb
 - **Bearings:** `bin/fm-log.sh export --entities --json` gives each task's tickets, project, and people with the date each was last touched across all work; the Bearings board shows them as small chips on each row, and the `/bearings` chat digest adds them to the end of Captain's Call and Underway lines.
   An absent or failing export only means no chips.
 - **Questions about the past and bug scoping:** the `captains-log` and `diagnostic-reasoning` skills run recall before answering or diagnosing.
+- **The captain's message (Claude primaries):** a `UserPromptSubmit` hook, `bin/fm-log-prompt-hook.sh`, runs `bin/fm-log.sh recall --mentions <message> --for captain` and adds the pack to the turn only when the message names an exact configured ticket id, a logged task id, or a `config/log-people` name or alias.
+  A message naming none of those adds nothing, and so do the log being off, an empty or unreadable index, a failing recall, and a recall slower than its 3-second bound; the prompt is never blocked.
+  Other harnesses' prompt hooks are later work; there the `captains-log` skill trigger carries the same questions.
 
 ## When it renders
 

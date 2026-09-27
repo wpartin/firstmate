@@ -77,6 +77,7 @@
 #   fm-log.sh recall [<terms>...] [--ticket ID] [--project NAME] [--person NAME]
 #                    [--task ID] [--since YYYY-MM-DD|<N>d] [--limit N] [--json]
 #                    [--for brief|captain|board|threads]
+#   fm-log.sh recall --mentions <text> [--for captain] [...]
 #   fm-log.sh recall --recent [--days N] [...]
 #                                  look things up in the log; see Recall below
 #
@@ -105,6 +106,12 @@
 #   open captain decisions from before today, then the 5 most recently touched
 #   tickets and projects, within --limit lines and 900 bytes; like brief it never
 #   fails, and it prints nothing when the index is stale or empty.
+#   --mentions <text> takes no terms: it scans the text for exact mentions only
+#   (a configured ticket id as a whole word, a logged task id as a whole word,
+#   a config/log-people name or alias verbatim), makes them entity filters, and
+#   runs no full-text or fuzzy match. Like brief it never fails its caller and
+#   prints nothing when the text names none or nothing matches;
+#   bin/fm-log-prompt-hook.sh is its consumer.
 #   --for board is the default shape. --recent covers the last --days (7).
 #   recall reads the index without any lock and makes no network call. When the
 #   last index update failed (state/.log-index-stale) it still answers, with a
