@@ -91,6 +91,7 @@ Names from the ticket patterns, task ids, registered projects, and `config/log-p
 
 Recall reads a derived index at `state/.log-index.db`, which each sync keeps current from the fleet ledger, the notes (including lines the captain wrote by hand), and the first paragraph of each scout report.
 The index is disposable: `bin/fm-log.sh index --rebuild` recreates it, and redacted text never reaches it.
+Emptying the fleet ledger keeps the rows already indexed from it, but a rebuild after that recovers only what the ledger still holds.
 The form given to workers (`--for brief`) carries no note paths and no inbox-note or people-note text.
 `bin/fm-log.sh`'s header owns the flags, ranking, and output shape.
 
