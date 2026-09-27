@@ -718,12 +718,13 @@ def cmd_sync(args):
             rendered += 1
         new_offset = offset + len(complete)
     repair_path = os.path.join(os.path.dirname(cursor_path), ".log-repair")
-    if (read(repair_path) or "").strip() != REPAIR_VERSION:
+    has_fleet = snapshot is not None and snapshot.get("queue") is not None
+    if has_fleet and (read(repair_path) or "").strip() != REPAIR_VERSION:
         log.repair(ledger)
         write_atomic(repair_path, REPAIR_VERSION + "\n")
     today_path = log.refresh_today()
     queue_path = os.path.join(root, "queue.md")
-    if snapshot is not None and snapshot.get("queue") is not None:
+    if has_fleet:
         text = log.queue_md(generated)
         if read(queue_path) != text + "\n":
             write_atomic(queue_path, text + "\n")
