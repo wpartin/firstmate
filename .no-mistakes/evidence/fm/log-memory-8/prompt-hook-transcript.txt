@@ -1,4 +1,5 @@
-=== prompt: What happened with ENG-12?
+=== prompt: what's the status on ENG-12?
+rc=0
 Captain's log history for what this message names (fm-log.sh recall; cite it, verify volatile details):
 query: --ticket ENG-12
 resolved: ticket ENG-12
@@ -16,25 +17,8 @@ decisions_see: 2026/09/24/2026-09-24.md#fm:82ecb6100262
 open[1]{task,state,since}:
   eng-12-retry,in flight,2026-09-24
 
-=== prompt: How is Dana doing?
-Captain's log history for what this message names (fm-log.sh recall; cite it, verify volatile details):
-query: --person Dana Reyes
-resolved: person Dana Reyes
-entities[3]{kind,name,first,last,touches}:
-  person,Dana Reyes,2026-09-24,2026-09-24,2
-  project,billing,2026-09-24,2026-09-24,2
-  ticket,ENG-12,2026-09-24,2026-09-24,2
-entities_see: people/Dana Reyes.md
-timeline[1]{date,what,task}:
-  2026-09-24,Started in billing,eng-12-retry
-timeline_see: 2026/09/24/2026-09-24.md#fm:cbf24396c686
-decisions[1]{date,question,answer,state}:
-  2026-09-24,retry on 429 or back off?,"retry with jitter, never approach B",answered
-decisions_see: 2026/09/24/2026-09-24.md#fm:82ecb6100262
-open[1]{task,state,since}:
-  eng-12-retry,in flight,2026-09-24
-
-=== prompt: status of eng-12-retry
+=== prompt: how is eng-12-retry going
+rc=0
 Captain's log history for what this message names (fm-log.sh recall; cite it, verify volatile details):
 query: --ticket ENG-12 --task eng-12-retry
 resolved: ticket ENG-12; task eng-12-retry
@@ -53,5 +37,28 @@ decisions_see: 2026/09/24/2026-09-24.md#fm:82ecb6100262
 open[1]{task,state,since}:
   eng-12-retry,in flight,2026-09-24
 
-=== prompt: what's the weather like
-(no output - nothing injected)
+=== prompt: did Dana reply?
+rc=0
+Captain's log history for what this message names (fm-log.sh recall; cite it, verify volatile details):
+query: --person Dana Reyes
+resolved: person Dana Reyes
+entities[3]{kind,name,first,last,touches}:
+  person,Dana Reyes,2026-09-24,2026-09-24,2
+  project,billing,2026-09-24,2026-09-24,2
+  ticket,ENG-12,2026-09-24,2026-09-24,2
+entities_see: people/Dana Reyes.md
+timeline[1]{date,what,task}:
+  2026-09-24,Started in billing,eng-12-retry
+timeline_see: 2026/09/24/2026-09-24.md#fm:cbf24396c686
+decisions[1]{date,question,answer,state}:
+  2026-09-24,retry on 429 or back off?,"retry with jitter, never approach B",answered
+decisions_see: 2026/09/24/2026-09-24.md#fm:82ecb6100262
+open[1]{task,state,since}:
+  eng-12-retry,in flight,2026-09-24
+
+=== prompt: let's refactor the parser
+rc=0
+(no injection)
+=== prompt: Danaher ENG-99 unrelated
+rc=0
+(no injection)
