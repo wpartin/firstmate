@@ -108,6 +108,15 @@ Emptying the fleet ledger keeps the rows already indexed from it, but a rebuild 
 The form given to workers (`--for brief`) carries no note paths and no inbox-note or people-note text.
 `bin/fm-log.sh`'s header owns the flags, ranking, and output shape.
 
+### Recall at the contract points
+
+Firstmate sees relevant history at the moments it acts, without having to remember to look.
+
+- **Worker instructions:** `bin/fm-brief.sh` recalls the task's tickets, people, project, and id in the worker form and writes at most 15 lines under `## Relevant history`, after `## Firstmate spec` and labelled as firstmate-supplied context, never as the captain's intent.
+  Nothing is written when the history is empty, the log is off, or recall fails, and the scaffold never fails because of it.
+- **Filing work:** after a successful `bin/fm-tasks-axi.sh add`, a `RELATED:` pack follows when the item has a ticket or person field or its title names a known ticket, person, or project; it is silent otherwise, when the log is off, and with `--json`.
+- **Questions about the past and bug scoping:** the `captains-log` and `diagnostic-reasoning` skills run recall before answering or diagnosing.
+
 ## When it renders
 
 - At session start, as part of the startup digest, which prints today's note path.

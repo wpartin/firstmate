@@ -21,6 +21,9 @@
 # as one --body. bin/fm-fleet-snapshot.sh owns reading them back, and
 # docs/captains-log.md owns what they mean for the log. A value that is empty or
 # carries a comma or newline is refused, since either would split the field.
+# After a successful add (not --json), a `RELATED:` recall pack follows when a
+# --ticket or --people value or a ticket, person, or project named in the title
+# has history in the captain's log; nothing prints otherwise or when it is off.
 #
 # Why it exists: a bare `tasks-axi` resolves the tracked `.tasks.toml` paths
 # against its working directory, so from the code root it forks the queue
@@ -103,6 +106,9 @@ BODY_SET=0
 path_value_next=0
 field_next=
 is_add=0
+TITLE=
+JSON_OUT=0
+add_value_next=0
 case "${1:-}" in add|create) is_add=1 ;; esac
 
 field_value() {  # <flag> <value>
@@ -156,6 +162,17 @@ for arg in "$@"; do
       ;;
     *)
       ARGS+=("$arg")
+      if [ "$is_add" = 1 ]; then
+        if [ "$add_value_next" = 1 ]; then add_value_next=0
+        else
+          case "$arg" in
+            --json) JSON_OUT=1 ;;
+            --kind|--repo|--blocked-by|--pr|--report|--priority|--prefix) add_value_next=1 ;;
+            -*|add|create) ;;
+            *) TITLE=$arg ;;
+          esac
+        fi
+      fi
       ;;
   esac
 done
@@ -167,6 +184,30 @@ if [ "$is_add" = 1 ]; then
   [ "${#PEOPLE[@]}" -eq 0 ] || BODY="${BODY:+$BODY$'\n'}people: $(join_list "${PEOPLE[@]}")"
   [ "$BODY_SET" = 0 ] && [ -z "$BODY" ] || ARGS+=(--body "$BODY")
 fi
+
+# RELATED: after a successful add, recall the item's tickets, people, and the
+# entities its title names (docs/captains-log.md "Recall"); silent when nothing
+# resolves, the log is off, or recall fails, and never changes the exit status.
+related_recall() {
+  local log="$SCRIPT_DIR/fm-log.sh" flags=() resolved line kind name pack
+  local t p words
+  for t in ${TICKETS[@]+"${TICKETS[@]}"}; do flags+=(--ticket "$t"); done
+  for p in ${PEOPLE[@]+"${PEOPLE[@]}"}; do flags+=(--person "$p"); done
+  if [ -n "$TITLE" ]; then
+    read -ra words <<< "$TITLE"
+    resolved=$("$log" recall "${words[@]}" --for brief --json 2>/dev/null \
+      | jq -r '.resolved[]? | select(.kind != "task" and (.via == "exact" or .via == "pattern")) | .kind + "\t" + .name' 2>/dev/null) || resolved=
+    while IFS= read -r line; do
+      [ -n "$line" ] || continue
+      kind=${line%%$'\t'*}; name=${line#*$'\t'}
+      flags+=("--$kind" "$name")
+    done <<< "$resolved"
+  fi
+  [ "${#flags[@]}" -gt 0 ] || return 0
+  pack=$("$log" recall --for captain --limit 20 "${flags[@]}" 2>/dev/null) || return 0
+  case "$pack" in ''|*"found: nothing in the log"*) return 0 ;; esac
+  printf 'RELATED:\n%s\n' "$pack"
+}
 
 command -v tasks-axi >/dev/null 2>&1 || fail "tasks-axi is not on PATH; run bin/fm-bootstrap.sh for the install command"
 
@@ -185,4 +226,6 @@ else
 fi
 
 cd "$FM_BACKLOG_AXI_ROOT" || fail "cannot enter the backlog root $FM_BACKLOG_AXI_ROOT"
-exec tasks-axi ${ARGS[@]+"${ARGS[@]}"}
+[ "$is_add" = 1 ] && [ "$JSON_OUT" = 0 ] || exec tasks-axi ${ARGS[@]+"${ARGS[@]}"}
+tasks-axi ${ARGS[@]+"${ARGS[@]}"} || exit $?
+related_recall

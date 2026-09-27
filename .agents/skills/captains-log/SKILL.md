@@ -2,7 +2,7 @@
 name: captains-log
 description: >-
   Agent-only procedure for the captain's log, the private Markdown record firstmate renders from its own records.
-  Load when the captain asks to turn the log on or off, move it, configure ticket, people, or redaction patterns, or asks where something is in the log, and when answering an inbox note that carries a log_day= line.
+  Load before answering any question about earlier work, decisions, tickets, people, or projects, when filing work with bin/fm-tasks-axi.sh add, when the captain asks to turn the log on or off, move it, configure ticket, people, or redaction patterns, or asks where something is in the log, and when answering an inbox note that carries a log_day= line.
 user-invocable: false
 metadata:
   internal: true
@@ -12,6 +12,11 @@ metadata:
 
 The log is a projection of durable records, so firstmate's job is to keep feeding those records, never to write the log by hand.
 [`docs/captains-log.md`](../../../docs/captains-log.md) owns the layout and what each record renders as, and `bin/fm-log.sh`'s header owns the commands.
+
+## Recall before answering about the past
+
+Before answering any question about earlier work, decisions, tickets, people, or projects, run `bin/fm-log.sh recall <the ticket, name, or words> --for captain` and answer from its dated rows, quoting the captain's recorded words for a decision.
+Work already has recall wired in where it is written: `bin/fm-brief.sh` adds a `## Relevant history` section and `bin/fm-tasks-axi.sh add` prints `RELATED:`, so read those before dispatching rather than re-proposing what the captain already rejected.
 
 ## What keeps the log correct
 
