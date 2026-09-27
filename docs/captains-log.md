@@ -73,6 +73,28 @@ When the snapshot cannot be read, the last good view stays and is marked stale.
 
 `config/log-redact` optionally lists regular expressions, one per line, whose matches are replaced with `[redacted]` before anything is written.
 
+## Recall
+
+`bin/fm-log.sh recall` is how firstmate looks things up in the log: by ticket, project, person, or task, or by free terms.
+
+```
+bin/fm-log.sh recall ENG-12                          # a ticket named in a question resolves exactly
+bin/fm-log.sh recall what did we decide with Dana Reyes
+bin/fm-log.sh recall --project billing --since 30d
+bin/fm-log.sh recall --recent                        # the last week, plus everything still open
+```
+
+It returns one bounded pack, newest and most relevant first: the entities involved with when each was first and last touched, a dated timeline of outcomes, the decisions with the captain's recorded words, learnings, and the items still open.
+Every line carries its date and a citation to the note it came from (`<note path>#<anchor>`), so a line can be quoted precisely and opened in the note.
+Anything left out by the bound is counted on a `more:` line.
+Names from the ticket patterns, task ids, registered projects, and `config/log-people` are matched exactly and shown on a `resolved:` line; the rest of the question is searched as text.
+
+Recall reads a derived index at `state/.log-index.db`, which each sync keeps current from the fleet ledger, the notes (including lines the captain wrote by hand), and the first paragraph of each scout report.
+The index is disposable: `bin/fm-log.sh index --rebuild` recreates it, and redacted text never reaches it.
+Emptying the fleet ledger keeps the rows already indexed from it, but a rebuild after that recovers only what the ledger still holds.
+The form given to workers (`--for brief`) carries no note paths and no inbox-note or people-note text.
+`bin/fm-log.sh`'s header owns the flags, ranking, and output shape.
+
 ## When it renders
 
 - At session start, as part of the startup digest, which prints today's note path.
@@ -83,6 +105,6 @@ If the log folder is unreachable, nothing is lost: the ledger keeps every record
 
 ## Boundaries
 
-- The log makes no network calls, and workers are never told where it is.
+- The log and recall make no network calls, and workers are never told where it is.
 - Firstmate never writes into `attachments/`, and never deletes anything in the log.
 - The board is where the captain acts; the log is the record of what happened.
