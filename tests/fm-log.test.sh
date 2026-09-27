@@ -289,6 +289,7 @@ test_manual_add_learn_and_unresolved() {
 
 Bounded waits beat hangs." "$(cat "$home/data/log/learnings/bounded-waits.md")" "learning note"
   has "$(cat "$home/state/fleet-ledger.jsonl")" '"event":"learning.filed","task":null,"slug":"bounded-waits","title":"Keep waits bounded"'
+  lacks "$(cat "$home/state/fleet-ledger.jsonl")" '"sources"' "a learning with no source records none"
   run_log "$home" sync >/dev/null 2>&1 || fail "sync failed"
   note=$(day_note "$home" 2026-09-24)
   assert_equals 1 "$(grep -c 'Chase the vendor' "$note")" "manual add is idempotent"

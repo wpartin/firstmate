@@ -40,10 +40,12 @@ Readers must ignore members and events they do not recognize, so later versions 
 | `captain.answered` | `mode`, `source`, `words`                      | A new captain answer, release, repair, or reconciliation is recorded on a held task; a replay of a recorded answer writes none. |
 | `inbox.noted`      | `note`, `log_day`, `thread`, `text`            | A new captain inbox note is saved; `task` is the note's `task=` line or `null`. |
 | `inbox.replied`    | `note`, `text`                                 | Firstmate records its one reply to an inbox note. |
-| `learning.filed`   | `slug`, `title`                                | A durable learning is filed through the captain's log. |
+| `learning.filed`   | `slug`, `title`, optional `sources`            | A durable learning is filed through the captain's log. |
 
 `task.dispatched` members: `kind` is `ship`, `scout`, or `secondmate`; `project` is the project directory name, or `null` for a remote second mate; `harness` names the agent tool; `model` is the requested model, or `null` for the tool's default.
 `tickets` and `people` are non-empty string arrays copied from the backlog item's structured `ticket:` and `people:` lines at a fresh spawn; each is absent when the item has no such line, could not be read, or the record predates them.
+
+`learning.filed` members: `sources` is an object of non-empty string arrays `tasks`, `tickets`, and `projects`, each present only when the learning was filed with that kind of source; the whole member is absent for a learning filed with none, or a record that predates it.
 
 `task.pr_ready` members: `pr` is the PR's full URL.
 It is written each time firstmate records a PR for the task, so registering a replacement PR, or the same PR again, writes another record; recording the PR again as part of merging it writes none.

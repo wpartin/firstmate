@@ -3,6 +3,7 @@
 # index and recall, bin/fm_log.py): golden packs for an exact ticket, a plain
 # person name, fuzzy terms, --since, and the bound; an incremental index equals
 # a rebuild; redaction hides text from search; --for brief carries no paths;
+# a learning filed against a ticket, project, or task comes back for them;
 # the log being off exits 3; and a 50k-record ledger answers under 200 ms.
 # bin/fm-log.sh's header owns the contract.
 set -u
@@ -445,3 +446,59 @@ test_entity_export_json() {
   pass "the entity export dates each entity by its newest touch across tasks"
 }
 test_entity_export_json
+
+test_learning_sources_come_back() {
+  local home ledger_text a
+  home=$(make_home learning-sources)
+  fixture "$home"
+  printf 'Settlement files arrive after midnight UTC.\n' \
+    | run_log "$home" learn settlement-timing "Settlement timing" --ticket eng-77 --project payments >/dev/null \
+    || fail "learn with sources failed"
+  printf 'Ask for the vendor sandbox before load tests.\n' \
+    | run_log "$home" learn vendor-sandbox "Vendor sandbox" --task eng-12-retry >/dev/null || fail "learn with a task failed"
+  head -n 6 "$home/data/log/learnings/settlement-timing.md" > "$TMP_ROOT/front"
+  assert_equals '---
+tasks: []
+tickets: ["ENG-77"]
+projects: ["payments"]
+filed: 2026-09-25
+---' "$(cat "$TMP_ROOT/front")" "learning frontmatter"
+  ledger_text=$(cat "$home/state/fleet-ledger.jsonl")
+  has "$ledger_text" '"slug":"settlement-timing","title":"Settlement timing","sources":{"tickets":["eng-77"],"projects":["payments"]}' "learning sources on the ledger"
+  run_log "$home" sync >/dev/null 2>&1 || fail "sync failed"
+  has "$(cat "$home/data/log/tickets/ENG-77.md")" "Learned [[settlement-timing|Settlement timing]]" "ticket note fan-out"
+  has "$(cat "$home/data/log/projects/payments.md")" "Learned [[settlement-timing|Settlement timing]]" "project note fan-out"
+  a=$(run_log "$home" recall --ticket ENG-77 --for brief)
+  has "$a" "Settlement timing" "recall on the ticket brings the learning back"
+  lacks "$a" "tasks: []" "frontmatter stays out of recall"
+  has "$(run_log "$home" recall --project payments --for brief)" "Settlement timing" "recall on the project"
+  has "$(run_log "$home" recall --ticket ENG-12 --for brief)" "Vendor sandbox" "a task's learning comes back for its ticket"
+  lacks "$(run_log "$home" recall --ticket ENG-12 --for brief)" "Settlement timing" "an unrelated learning stays out"
+  run_log "$home" index --rebuild || fail "rebuild failed"
+  has "$(run_log "$home" recall --ticket ENG-77 --for brief)" "Settlement timing" "a rebuilt index keeps the learning's sources"
+  pass "a learning filed against a ticket, project, or task comes back for them and fans out to their notes"
+}
+test_learning_sources_come_back
+
+test_learning_links_follow_every_task_and_refiling() {
+  local home
+  home=$(make_home learning-refile)
+  fixture "$home"
+  printf 'Colour tokens live in the billing theme.\n' \
+    | run_log "$home" learn colour-tokens "Colour tokens" --task pick-colour --task eng-12-retry >/dev/null \
+    || fail "learn with two tasks failed"
+  run_log "$home" sync >/dev/null 2>&1 || fail "sync failed"
+  has "$(run_log "$home" recall --ticket ENG-12 --for brief)" "Colour tokens" "the second task's ticket brings the learning back"
+  has "$(run_log "$home" recall --project billing --for brief)" "Colour tokens" "the second task's project brings the learning back"
+  printf 'Settlement files arrive after midnight UTC.\n' \
+    | run_log "$home" learn settlement-timing "Settlement timing" --ticket eng-77 >/dev/null || fail "first filing failed"
+  run_log "$home" sync >/dev/null 2>&1 || fail "sync failed"
+  has "$(run_log "$home" recall --ticket ENG-77 --for brief)" "Settlement timing" "first filing recalls on its ticket"
+  printf 'Settlement files arrive after midnight UTC.\n' \
+    | run_log "$home" learn settlement-timing "Settlement timing" --ticket eng-78 >/dev/null || fail "re-filing failed"
+  run_log "$home" sync >/dev/null 2>&1 || fail "sync failed"
+  has "$(run_log "$home" recall --ticket ENG-78 --for brief)" "Settlement timing" "the corrected ticket recalls the learning"
+  lacks "$(run_log "$home" recall --ticket ENG-77 --for brief)" "Settlement timing" "the stale ticket no longer recalls it"
+  pass "a learning comes back for every task it names, and re-filing replaces stale sources"
+}
+test_learning_links_follow_every_task_and_refiling

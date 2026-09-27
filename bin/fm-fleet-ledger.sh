@@ -36,11 +36,15 @@
 #   fm-fleet-ledger.sh answered <task> <mode> <source> <words>
 #   fm-fleet-ledger.sh noted <note-id> <task-or-empty> <log-day-or-empty> <thread-or-empty> <text>
 #   fm-fleet-ledger.sh replied <note-id> <text>
-#   fm-fleet-ledger.sh learning <slug> <title>
+#   fm-fleet-ledger.sh learning <slug> <title> [<sources>]
 #
 # dispatched's optional <entities> is the {tickets,people} JSON object that
 # bin/fm-fleet-snapshot.sh --task-entities prints; its string arrays become the
 # record's tickets and people members when non-empty; anything else adds neither.
+#
+# learning's optional <sources> is a {tasks,tickets,projects} JSON object; its
+# non-empty string arrays become the record's `sources` member, and a record
+# with none carries no `sources` member at all.
 #
 # The noted, replied, and learning records are not about a task; their `task`
 # member is the related task id when one is named, else null.
@@ -82,7 +86,7 @@ LOCK="$STATE/.fleet-ledger.lock"
 TEXT_MAX_CHARS=2000
 
 usage() {
-  echo "usage: fm-fleet-ledger.sh dispatched <task> <kind> <project> <harness> <model> [<entities>] | pr_ready <task> <url> | merged <task> pr <url> | merged <task> local | cleaned_up <task> | capture | appended <config> <state>/<task>.status | held <task> <reason> [<until>] | answered <task> <mode> <source> <words> | noted <note-id> <task> <log-day> <thread> <text> | replied <note-id> <text> | learning <slug> <title>" >&2
+  echo "usage: fm-fleet-ledger.sh dispatched <task> <kind> <project> <harness> <model> [<entities>] | pr_ready <task> <url> | merged <task> pr <url> | merged <task> local | cleaned_up <task> | capture | appended <config> <state>/<task>.status | held <task> <reason> [<until>] | answered <task> <mode> <source> <words> | noted <note-id> <task> <log-day> <thread> <text> | replied <note-id> <text> | learning <slug> <title> [<sources>]" >&2
   exit 2
 }
 
@@ -103,7 +107,7 @@ case "$cmd" in
   answered) { [ "$#" -eq 5 ] && task_ok "$2" && [ -n "$3" ]; } || usage ;;
   noted) { [ "$#" -eq 6 ] && task_ok "$2" && { [ -z "$3" ] || task_ok "$3"; }; } || usage ;;
   replied) { [ "$#" -eq 3 ] && task_ok "$2"; } || usage ;;
-  learning) { [ "$#" -eq 3 ] && task_ok "$2" && [ -n "$3" ]; } || usage ;;
+  learning) { { [ "$#" -eq 3 ] || [ "$#" -eq 4 ]; } && task_ok "$2" && [ -n "$3" ]; } || usage ;;
   capture) [ "$#" -eq 1 ] || usage ;;
   appended)
     [ "$#" -eq 3 ] && [ -n "$2" ] || usage
@@ -274,8 +278,14 @@ case "$cmd" in
       --arg note "$2" --arg text "$3" || rc=1
     ;;
   learning)
-    append learning.filed "" '{slug: $slug, title: $title[0:'"$TEXT_MAX_CHARS"']}' \
-      --arg slug "$2" --arg title "$3" || rc=1
+    append learning.filed "" '{slug: $slug, title: $title[0:'"$TEXT_MAX_CHARS"']}
+       + (($sources | try fromjson catch null) as $s
+          | def names($k): ($s[$k] | select(type == "array") | map(select(type == "string" and . != "") | .[0:120]) | select(length > 0));
+          if ($s | type) == "object" then
+            (({tasks: names("tasks")} // {}) + ({tickets: names("tickets")} // {}) + ({projects: names("projects")} // {}))
+            | if length > 0 then {sources: .} else {} end
+          else {} end)' \
+      --arg slug "$2" --arg title "$3" --arg sources "${4:-}" || rc=1
     ;;
 esac
 [ "$rc" -eq 0 ] || echo "fm-fleet-ledger: could not record $cmd${2:+ for $2}; the ledger may be missing records" >&2

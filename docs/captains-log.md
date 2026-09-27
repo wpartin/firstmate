@@ -81,6 +81,9 @@ A task filed without the fields keeps the older behavior: tickets come from its 
 - **People** are linked only from a task's `people:` field; names are never taken from prose.
   An optional `config/log-people` lists who may be linked, one person per line as `Name` or `Name<TAB>alias, alias`; a listed name or alias, in any letter case, resolves to its listed spelling in notes and recall.
 - **Learnings** are written with `bin/fm-log.sh learn <slug> <title>` (body on stdin), which also links them from the day note.
+  `--task`, `--ticket`, and `--project` (each repeatable) name the work a learning came from: the note opens with `tasks`, `tickets`, `projects`, and `filed` frontmatter, each named ticket and project note gets a `<date time> Learned [[<slug>|<title>]]` line, and recall returns the learning for those tickets and projects and for the named tasks' own tickets and project, so it comes back in the next brief on the same work.
+  Re-filing the same slug replaces its sources, so recall stops returning it for work the new frontmatter no longer names.
+  A learning filed this way can leave the always-loaded `data/learnings.md` under `/stow`'s offload rules; one filed without sources behaves as before.
 
 At intake, `bin/fm-log.sh entities "<the captain's words>"` suggests configured ticket ids and listed names or aliases that appear verbatim in the words.
 It records nothing: firstmate decides whether to pass them as `--ticket` or `--people`.

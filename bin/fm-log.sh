@@ -42,9 +42,18 @@
 #   fm-log.sh add <worked|open|carried|asked> <text>
 #                                  manual escape hatch: one bullet in today's note
 #   fm-log.sh ticket <ID> <text>   manual dated line in tickets/<ID>.md
-#   fm-log.sh learn <slug> <title> write learnings/<slug>.md from stdin and record
+#   fm-log.sh learn <slug> <title> [--task ID]... [--ticket ID]... [--project NAME]...
+#                                  write learnings/<slug>.md from stdin and record
 #                                  learning.filed on the ledger (the day note's
-#                                  Worked through link arrives at the next sync)
+#                                  Worked through link arrives at the next sync).
+#                                  Each flag names the work the learning came from:
+#                                  the note opens with tasks/tickets/projects/filed
+#                                  frontmatter, the record carries them as `sources`,
+#                                  the next sync adds a "Learned" line to each named
+#                                  ticket and project note, and recall returns the
+#                                  learning for any of them (and for the named tasks'
+#                                  tickets and project). With no flag the note has
+#                                  no frontmatter and the record no sources.
 #   fm-log.sh unresolved           list [[links]] with no note behind them
 #   fm-log.sh entities <text>      at intake, suggest the configured ticket ids and
 #                                  the registered people (names or aliases) found
@@ -103,7 +112,7 @@
 # Index (state/.log-index.db, SQLite FTS5 in WAL mode, disposable):
 #   Built from the fleet ledger through its own byte cursor, the log's Markdown
 #   notes (hand-written and fm:manual lines; lines owned by a ledger anchor come
-#   from the ledger instead), learning notes, the first paragraph of each
+#   from the ledger instead), learning notes (linked to their sources), the first paragraph of each
 #   data/<id>/report.md, and the entity registry, re-reading a file only when its
 #   mtime or size changes. config/log-redact applies before anything is indexed,
 #   and a change to log-tickets, log-people, or log-redact rebuilds it. A failed
@@ -378,14 +387,35 @@ case "$cmd" in
     with_write_lock python3 "$PY" ticket "$root" "$CONFIG" "$1" "$2"
     ;;
   learn)
-    [ "$#" -eq 2 ] || usage
-    case "$1" in ''|.*|*[!A-Za-z0-9._-]*) die "learning slug must use A-Za-z0-9._-" 2 ;; esac
-    [ -n "$2" ] || usage
+    [ "$#" -ge 2 ] || usage
+    slug=$1 title=$2
+    shift 2
+    case "$slug" in ''|.*|*[!A-Za-z0-9._-]*) die "learning slug must use A-Za-z0-9._-" 2 ;; esac
+    [ -n "$title" ] || usage
+    tasks=() tickets=() projects=()
+    while [ "$#" -gt 0 ]; do
+      [ "$#" -ge 2 ] && [ -n "$2" ] || usage
+      case "$1" in
+        --task) case "$2" in .*|*[!A-Za-z0-9._-]*) die "task id must use A-Za-z0-9._-" 2 ;; esac; tasks+=("$2") ;;
+        --ticket) tickets+=("$2") ;;
+        --project) projects+=("$2") ;;
+        *) usage ;;
+      esac
+      shift 2
+    done
+    sources=''
+    if [ "$((${#tasks[@]} + ${#tickets[@]} + ${#projects[@]}))" -gt 0 ]; then
+      sources=$(jq -cn --args '[$ARGS.positional[] | capture("^(?<k>[a-z]+)=(?<v>.*)$"; "s")] as $a
+        | def part($k): [$a[] | select(.k == $k) | .v] | unique;
+        {tasks: part("tasks"), tickets: part("tickets"), projects: part("projects")}' \
+        ${tasks[@]+"${tasks[@]/#/tasks=}"} ${tickets[@]+"${tickets[@]/#/tickets=}"} \
+        ${projects[@]+"${projects[@]/#/projects=}"}) || die "cannot encode the learning's sources"
+    fi
     root=$(log_root) || die "the captain's log is off for this home" 3
     claim_root "$root"
-    with_write_lock python3 "$PY" learn "$root" "$1" "$2" || exit 1
+    with_write_lock python3 "$PY" learn "$root" "$CONFIG" "$slug" "$title" "$sources" "$(today)" || exit 1
     [ ! -e "$CONFIG/fleet-ledger" ] || FM_HOME=$FM_HOME FM_STATE_OVERRIDE=$STATE FM_CONFIG_OVERRIDE=$CONFIG \
-      "$SCRIPT_DIR/fm-fleet-ledger.sh" learning "$1" "$2" >/dev/null 2>&1 || true
+      "$SCRIPT_DIR/fm-fleet-ledger.sh" learning "$slug" "$title" ${sources:+"$sources"} >/dev/null 2>&1 || true
     ;;
   unresolved)
     [ "$#" -eq 0 ] || usage
