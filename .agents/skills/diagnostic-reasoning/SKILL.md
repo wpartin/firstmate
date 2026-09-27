@@ -36,6 +36,7 @@ A masking condition may explain why a fault appears only sometimes without being
 Inspect the failing path and a proven path where the intended behavior is known to work.
 Compare their inputs, state transitions, dependencies, timing, and control flow to find the earliest meaningful divergence.
 Inspect relevant history, including blame, commits, migrations, and prior implementations, when it can explain why the paths diverged or which invariant was intended.
+Run `bin/fm-log.sh recall --ticket <id>` or `--project <name>` on the affected ticket or project first, so earlier fixes, decisions, and learnings shape the diagnosis.
 Do not treat the most recent nearby change as causal without evidence.
 
 Identify the smallest counterfactual that should change the outcome if the leading explanation is true.

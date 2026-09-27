@@ -14,6 +14,9 @@
 # charters still use a single `{TASK}` charter fill. Firstmate may adjust other
 # sections when the task genuinely deviates (e.g. working an existing external
 # PR instead of shipping a new one).
+# Ship and scout briefs also get a bounded `## Relevant history` section from
+# the captain's log when the task's tickets, people, or project have history
+# (docs/captains-log.md "Recall at the contract points").
 # Usage: fm-brief.sh <task-id> <repo-name> --mode <no-mistakes|direct-PR|local-only> [--publish <on|off>] [--branch-prefix <prefix>] [--forge <none|gerrit> [--shape squash]] [--herdr-lab] [--project-dir <path>]
 #        fm-brief.sh <task-id> <repo-name> --scout [--herdr-lab]
 #        fm-brief.sh <task-id> --secondmate {<project>...|--no-projects}
@@ -553,6 +556,27 @@ IFS= read -r -d '' TASK_SECTION <<'EOF' || true
 {FIRSTMATE_SPEC}
 EOF
 TASK_SECTION=${TASK_SECTION%$'\n'}
+
+# Relevant history: the log's brief-audience recall on this task's structured
+# fields (docs/captains-log.md "Recall"), fenced so its lines never read as brief
+# headings. Log off, an empty result, or any failure adds nothing.
+relevant_history() {
+  local ents pack flags=(--task "$ID" --project "$REPO") value
+  ents=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" FM_DATA_OVERRIDE="$DATA" \
+    "$SCRIPT_DIR/fm-fleet-snapshot.sh" --task-entities "$ID" 2>/dev/null) || ents=
+  while IFS= read -r value; do
+    [ -n "$value" ] && flags+=("${value%%$'\t'*}" "${value#*$'\t'}")
+  done < <(printf '%s' "$ents" | jq -r '(.tickets // [])[] | "--ticket\t" + .' 2>/dev/null
+           printf '%s' "$ents" | jq -r '(.people // [])[] | "--person\t" + .' 2>/dev/null)
+  pack=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" FM_DATA_OVERRIDE="$DATA" \
+    "$SCRIPT_DIR/fm-log.sh" recall --for brief --limit 12 "${flags[@]}" 2>/dev/null) || return 0
+  pack=$(printf '%s\n' "$pack" | grep -v '^query: ' | head -n 11)
+  [ -n "$pack" ] || return 0
+  printf '\n\n## Relevant history\n%s\n%s\n%s\n%s' \
+    "Firstmate-supplied context from its own records, not the captain's intent: earlier outcomes and decisions on this task's tickets, project, and people." \
+    "~~~" "$pack" "~~~"
+}
+TASK_SECTION="$TASK_SECTION$(relevant_history)"
 
 # One shared string keeps the ship and scout infrastructure rule identical.
 # Rule 2 governs file edits, so it does not prohibit pool administration.
