@@ -256,6 +256,13 @@ a { color: inherit; text-decoration: none; }
   font-size: var(--fs-xs); font-weight: 800; color: var(--text-muted);
   border: 1.5px dashed var(--ink-300); border-radius: var(--radius-pill); padding: 5px 12px; width: fit-content;
 }
+.bb-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin-top: 4px; min-width: 0; }
+.bb-chip { font-size: var(--fs-2xs); font-weight: 600; color: var(--text-body); background: var(--paper-000);
+  border: 1px solid var(--border-soft); border-radius: var(--radius-pill); padding: 1px 8px; max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+a.bb-chip { color: var(--ocean-600); }
+a.bb-chip:hover { text-decoration: underline; }
+.bb-chip__when { font-size: var(--fs-2xs); color: var(--text-faint); white-space: nowrap; }
 .bb-empty { padding: 18px; font-size: var(--fs-sm); color: var(--text-muted); }
 
 /* ---- Charted Next dispatch picker ---- */
@@ -483,6 +490,35 @@ __FM_BEARINGS_BOARD_DATA__
     if (text != null) n.textContent = text;
     return n;
   }
+  /* log entities: ticket, project, and people chips with a muted last-touched hint, dated against the payload's generation day */
+  var boardDay = /^\d{4}-\d{2}-\d{2}/.test(data.generated || "") ? Date.parse(data.generated.slice(0, 10) + "T00:00:00Z") : NaN;
+  function ago(day) {
+    var then = Date.parse(String(day) + "T00:00:00Z");
+    var now = isNaN(boardDay) ? Date.now() : boardDay;
+    if (isNaN(then)) return "";
+    var d = Math.max(0, Math.round((now - then) / 86400000));
+    return d === 0 ? "today" : d + "d";
+  }
+  function entityChips(e) {
+    if (!e || typeof e !== "object") return null;
+    var box = el("div", "bb-chips"), newest = "";
+    function note(day) { if (typeof day === "string" && day > newest) newest = day; }
+    (Array.isArray(e.tickets) ? e.tickets : []).forEach(function (t) {
+      if (!t || !t.id) return;
+      var c;
+      if (typeof t.url === "string" && /^https?:\/\//.test(t.url)) {
+        c = el("a", "bb-chip bb-chip--ticket", t.id); c.href = t.url; c.target = "_blank"; c.rel = "noopener";
+      } else c = el("span", "bb-chip bb-chip--ticket", t.id);
+      box.appendChild(c); note(t.last);
+    });
+    if (e.project && e.project.name) { box.appendChild(el("span", "bb-chip bb-chip--project", e.project.name)); note(e.project.last); }
+    (Array.isArray(e.people) ? e.people : []).forEach(function (p) {
+      if (p && p.name) { box.appendChild(el("span", "bb-chip bb-chip--person", p.name)); note(p.last); }
+    });
+    if (!box.children.length) return null;
+    if (newest && ago(newest)) box.appendChild(el("span", "bb-chip__when", "last touched " + ago(newest)));
+    return box;
+  }
   function badge(tone, text) { return el("span", "fm-badge fm-badge--" + tone, text); }
   /* Warnings ride the charted feed for layout only; they are alarms, not work,
      so every count of queued work excludes them. */
@@ -692,6 +728,8 @@ __FM_BEARINGS_BOARD_DATA__
     pad.appendChild(top);
 
     pad.appendChild(el("h3", "bb-decision__title", item.title));
+    var callChips = entityChips(item.entities);
+    if (callChips) pad.appendChild(callChips);
 
     if (item.type === "merge") {
       if (item.detail) pad.appendChild(el("p", "bb-decision__detail", item.detail));
@@ -828,6 +866,8 @@ __FM_BEARINGS_BOARD_DATA__
        no repo is known */
     main.appendChild(el("div", "bb-row__sub",
       t.doing + " · " + t.kind + " · " + (t.repo || t.id)));
+    var uwChips = entityChips(t.entities);
+    if (uwChips) main.appendChild(uwChips);
     row.appendChild(main);
     if (typeof t.id === "string" && /^[A-Za-z0-9._-]{1,120}$/.test(t.id)) row.appendChild(rowButton("underway", t, row));
     uw.appendChild(row);
@@ -896,6 +936,8 @@ __FM_BEARINGS_BOARD_DATA__
     /* second line keeps the title uncrowded in the half-width column */
     var chSub = t.repo || t.id;
     main.appendChild(el("div", "bb-row__sub", t.reason ? t.reason + " · " + chSub : chSub));
+    var chChips = entityChips(t.entities);
+    if (chChips) main.appendChild(chChips);
     row.appendChild(main);
     if (isWarning(t)) row.appendChild(badge("danger", "needs repair"));
     else if (t.reason) row.appendChild(badge("warn", "waiting"));

@@ -188,6 +188,12 @@ const stats = strip.children.map((t) => ({
   disabled: !!t.disabled,
 }));
 
+// Rows and decision cards (calls) also report their entity chips as rendered text, with a ticket's link after an @ when it has one.
+const chipsOf = (parent) => {
+  const box = parent?.children.find((c) => c.className.split(/\s+/).includes("bb-chips"));
+  return box ? box.children.map((c) => c.textContent + (c.href ? "@" + c.href : "")) : [];
+};
+
 const rowsOf = (container) =>
   container.children
     .filter((r) => r.className.split(/\s+/).includes("bb-row"))
@@ -199,8 +205,13 @@ const rowsOf = (container) =>
         badges: badgesOf(row),
         pickable: row.children.some((c) => c.className.includes("bb-pick") && !c.className.includes("spacer")),
         options: row.children.some((c) => c.className.includes("bb-rowbtn")),
+        chips: chipsOf(main),
       };
     });
+
+const calls = allNodes
+  .filter((n) => n.className.split(/\s+/).includes("bb-decision__pad"))
+  .map((pad) => ({ title: pad.children.find((c) => c.tagName === "h3")?.textContent ?? "", chips: chipsOf(pad) }));
 
 const uw = byId.get("bb-underway") || new Node("div");
 const underway = rowsOf(uw);
@@ -221,7 +232,7 @@ const confirmNode = byId.get("bb-modal-confirm") || new Node("div");
 const staticNode = byId.get("bb-static") || new Node("div");
 process.stdout.write(
   JSON.stringify({
-    stats, underway, charted, empty, more, error: errorText,
+    stats, underway, charted, calls, empty, more, error: errorText,
     filtered: mainNode.classList.contains("bb-filtered"),
     shown: sectionNodes.filter((n) => n.classList.contains("is-shown")).map((n) => n.attributes["data-section"]),
     modal: {

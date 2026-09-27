@@ -55,6 +55,15 @@
 #   fm-log.sh index [--rebuild]    bring the derived recall index up to date; sync
 #                                  already does this after every render. --rebuild
 #                                  recreates it from the ledger, notes, and reports.
+#   fm-log.sh export --entities --json
+#                                  print {version, synced, tasks:{<task-id>:
+#                                  {tickets:[{id,url,last}], project:{name,last}|null,
+#                                  people:[{name,last}]}}} from the index (never the
+#                                  Markdown); last is the entity's newest touch date
+#                                  (YYYY-MM-DD) across all tasks. Tasks with no entity
+#                                  are left out. Read-only, no lock, no network; exit 1
+#                                  when the index is missing or unreadable, 3 when off.
+#                                  bin/fm-bearings-board.sh build is its consumer.
 #   fm-log.sh recall [<terms>...] [--ticket ID] [--project NAME] [--person NAME]
 #                    [--task ID] [--since YYYY-MM-DD|<N>d] [--limit N] [--json]
 #                    [--for brief|captain|board|threads]
@@ -401,6 +410,11 @@ case "$cmd" in
   entities)
     [ "$#" -eq 1 ] || usage
     exec python3 "$PY" entities "$CONFIG" "$1"
+    ;;
+  export)
+    [ "$#" -eq 2 ] && [ "$1" = --entities ] && [ "$2" = --json ] || usage
+    log_root >/dev/null || exit 3
+    exec python3 "$PY" export "$CONFIG" "$INDEX_DB"
     ;;
   recall)
     root=$(log_root) || exit 3

@@ -351,8 +351,9 @@ test_drop_states_exactly_what_it_discards() {
 test_static_copy_is_read_only() {
   local home out
   home=$(make_home static-copy)
-  printf 'https://lavish.example/session/abc\n' > "$home/state/.log-board-url"
-  out=$(render_static "$home" "$PARITY_PAYLOAD" '[]' 0)
+  printf 'http://127.0.0.1:4387/session/0123456789abcdef\n' > "$home/state/.log-board-url"
+  printf '%s\n' "$home/.lavish/bearings-board.html" > "$home/lavish-open"
+  out=$(PATH="$home/fakebin:$PATH" render_static "$home" "$PARITY_PAYLOAD" '[]' 0)
   printf '%s' "$out" | jq -e '.error == "" and (.staticBanner | contains("read-only copy"))
     and (.staticBanner | contains("Open the live board")) and .enabledControls == 0
     and .disabledControls > 0' >/dev/null \
@@ -360,7 +361,74 @@ test_static_copy_is_read_only() {
   pass "a static copy disables every control and points at the live board"
 }
 
+# A home whose captain's log index names billing work: ENG-12 with Dana Reyes on
+# eng-12-retry, touched 2026-09-22, and the same project on q2 two days later.
+make_log_home() {  # <name>
+  local home
+  home=$(make_home "$1")
+  mkdir -p "$home/config"
+  printf 'on\n' > "$home/config/log"
+  : > "$home/config/fleet-ledger"
+  printf '(?i)\\b(ENG-[0-9]+)\\b\thttps://tracker.example/{id}\n' > "$home/config/log-tickets"
+  printf '{"queue":[{"id":"fix-login","title":"ENG-12 fix login","repo":"billing","state":"in_flight","people":["Dana Reyes"]}]}\n' > "$home/snapshot.json"
+  printf '%s\n' \
+    '{"v":1,"ts":1790067600,"event":"task.dispatched","task":"fix-login","kind":"ship","project":"billing","harness":"claude","model":null}' \
+    '{"v":1,"ts":1790240400,"event":"task.dispatched","task":"q2","kind":"ship","project":"billing","harness":"claude","model":null}' \
+    > "$home/state/fleet-ledger.jsonl"
+  TZ=UTC FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" FM_CONFIG_OVERRIDE="$home/config" \
+    FM_LOG_SNAPSHOT_FILE="$home/snapshot.json" FM_LOG_TODAY=2026-09-24 "$ROOT/bin/fm-log.sh" sync >/dev/null 2>&1 \
+    || fail "the log fixture did not sync"
+  printf '%s\n' "$home"
+}
+
+test_rows_carry_log_entity_chips() {
+  local home out
+  home=$(make_log_home chips)
+  out=$(TZ=UTC render_static "$home" "$PARITY_PAYLOAD")
+  printf '%s' "$out" | jq -e '.error == ""
+    and .underway[0].chips == ["ENG-12@https://tracker.example/ENG-12", "billing", "Dana Reyes", "last touched today"]
+    and .charted[0].chips == ["billing", "last touched today"]
+    and .charted[1].chips == [] and .calls[0].chips == []' >/dev/null \
+    || fail "rows did not carry the log entity chips: $out"
+  pass "rows carry ticket, project, and people chips from the log with a last-touched hint"
+}
+
+test_rows_render_unchanged_without_the_export() {
+  local home out
+  home=$(make_home no-export)
+  out=$(render_static "$home" "$PARITY_PAYLOAD")
+  printf '%s' "$out" | jq -e '.error == "" and ([.underway[], .charted[], .calls[] | .chips] | all(. == []))
+    and .underway[0].title == "Fix login"' >/dev/null \
+    || fail "a board without a log export grew chips or lost rows: $out"
+  mkdir -p "$home/config" && printf 'off\n' > "$home/config/log"
+  out=$(render_static "$home" "$PARITY_PAYLOAD")
+  printf '%s' "$out" | jq -e '.error == "" and ([.underway[], .charted[] | .chips] | all(. == []))' >/dev/null \
+    || fail "a board with the log off did not render without chips: $out"
+  pass "a board with no log export renders without chips"
+}
+
+test_stale_log_board_url_is_cleared() {
+  local home
+  home=$(make_home url-cleared)
+  printf 'http://127.0.0.1:4387/session/0123456789abcdef\n' > "$home/state/.log-board-url"
+  PATH="$home/fakebin:$PATH" render_static "$home" "$PARITY_PAYLOAD" >/dev/null
+  [ ! -e "$home/state/.log-board-url" ] || fail "a board URL the server no longer lists open was kept"
+  pass "a recorded board URL whose session ended is cleared"
+}
+
+test_live_build_records_the_board_url() {
+  local home
+  home=$(make_home url-written)
+  render "$home" '[]' >/dev/null
+  assert_equals "http://127.0.0.1:4387/session/0123456789abcdef" "$(cat "$home/state/.log-board-url" 2>/dev/null)" "recorded board URL"
+  pass "a verified live build records the board URL for the captain's log"
+}
+
 test_count_cards_filter_the_board
+test_rows_carry_log_entity_chips
+test_rows_render_unchanged_without_the_export
+test_stale_log_board_url_is_cleared
+test_live_build_records_the_board_url
 test_row_options_queue_action_instructions
 test_drop_states_exactly_what_it_discards
 test_static_copy_is_read_only

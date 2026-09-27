@@ -114,6 +114,7 @@ Compose the payload from the same snapshot with the same ranking judgment as the
   Omit it or pass null for a row with no durable filed date - the main-inventory or return-catchup warning, an unavailable secondmate home, or a queued row filed before dates were recorded - and the board keeps those rows in payload order after every dated row.
 - Every Underway row, and every Charted Next row whose task already has a local copy, carries `unlanded` when its work has not landed: `branch` and `head` read from the task's own local copy (`git rev-parse --abbrev-ref HEAD` and `git rev-parse HEAD`), `commits` counted against the remotes, and `pr_url` from the task's `pr=` record when that PR is open.
   Omit it when nothing is unlanded; the board's drop confirmation lists exactly these fields and nothing else.
+- Do not compose entity chips: `build` reads the captain's log export itself and adds each row's `entities` (ticket linked to its tracker, project, people, and a last-touched hint); a composed `entities` member must match that shape.
 - Every Captain's Call item and every Underway, Recently Landed, and Charted Next row carries an explicit `repo` field. Fill it from the snapshot and task records wherever known; use null or an empty string only as the deliberate genuinely-no-repo marker, in which case the template may show the internal id. Ids otherwise stay in the payload only as the routing channel, and composed reasons name blockers in plain words.
 
 Run `build` once after composing the payload.
@@ -152,7 +153,7 @@ After handling, rebuild the board from a fresh snapshot so acted-on items leave 
 ### Static copy
 
 `bin/fm-bearings-board.sh build --static` renders a read-only copy with every control disabled, for reading when no live board is up; the captain's log keeps one beside itself and links the live board instead whenever `state/.log-board-url` names one.
-After every live `build`, write the session URL it printed to `state/.log-board-url` so each day note's board link opens the live board.
+The board script owns that file: a live `build` records the session URL once the session is proved open, and it is cleared whenever the session is found ended, so there is nothing to write by hand.
 
 ### The merge-click ruling (captain-decided)
 
@@ -195,6 +196,8 @@ Rules that keep the contract unambiguous:
 - Detailed decisions, plans, full gate reasons, and evidence stay out of chat; file mode puts them in the report, while lavish mode puts only its payload-backed interactive detail on the board.
 - In file mode, include the report path or link inside the four-section digest without adding another heading.
 - In lavish mode, include the board URL inside the four-section digest the same way.
+- Captain's Call and Underway rows end with their log entities when the captain's log knows any: run `bin/fm-log.sh export --entities --json` once per digest and append ` · <ticket> · <project> (<age>)`, for example ` · ENG-12 · billing (3d)`, where the age is days since the newest `last` among that row's entities (`today` for zero); name people only when they carry the row's meaning.
+  A failing or absent export, or a row the export does not name, leaves the line as it is; never delay the digest for it.
 
 ## Tone and content rules
 
