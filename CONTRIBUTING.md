@@ -3,7 +3,7 @@
 Thanks for wanting to contribute.
 One rule up front:
 
-**Human-authored pull requests targeting `main` must be raised through [`no-mistakes`](https://github.com/kunchenguid/no-mistakes).**
+**Human-authored pull requests, whatever their base branch, must be raised through [`no-mistakes`](https://github.com/kunchenguid/no-mistakes).**
 We require this to reduce the maintainer's burden of reviewing and merging contributions.
 
 `no-mistakes` puts a local git proxy in front of your real remote.
