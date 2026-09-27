@@ -1,0 +1,5 @@
+ok - a brief for a task with history carries a bounded, path-free Relevant history
+ok - empty history or an off log leaves the brief unchanged
+ok - a task whose only recall row is its own open item gets no Relevant history
+ok - add stays silent when a title only resembles an entity name
+ok - add prints RELATED only when its entities resolve and the log is on
