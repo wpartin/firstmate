@@ -1,0 +1,67 @@
+$ fm-log.sh recall ENG-12
+query: ENG-12
+resolved: ticket ENG-12
+entities[3]{kind,name,first,last,touches,note}:
+  ticket,ENG-12,2026-09-24,2026-09-24,5,tickets/ENG-12.md
+  person,Dana Reyes,2026-09-24,2026-09-24,4,people/Dana Reyes.md
+  project,billing,2026-08-25,2026-09-24,6,projects/billing.md
+timeline[4]{date,what,task,cite}:
+  2026-09-24,Noted: private musing about ENG-12,"",2026/09/24/2026-09-24.md#fm:note:n1
+  2026-09-24,Landed https://github.com/acme/billing/pull/41,eng-12-retry,2026/09/24/2026-09-24.md#fm:41498bba697c
+  2026-09-24,Finished - retrying implemented,eng-12-retry,2026/09/24/2026-09-24.md#fm:4b031c1e8954
+  2026-09-24,Started in billing,eng-12-retry,2026/09/24/2026-09-24.md#fm:70828ed5d9a8
+decisions[1]{date,question,answer,state,cite}:
+  2026-09-24,retry on 429 or back off?,"retry with jitter, never approach B",answered,2026/09/24/2026-09-24.md#fm:82ecb6100262
+open[1]{task,state,since}:
+  eng-12-retry,in flight,2026-09-24
+
+$ fm-log.sh recall what did we decide with Dana Reyes
+query: what did we decide with Dana Reyes
+resolved: person Dana Reyes
+entities[3]{kind,name,first,last,touches,note}:
+  person,Dana Reyes,2026-09-24,2026-09-24,4,people/Dana Reyes.md
+  project,billing,2026-08-25,2026-09-24,6,projects/billing.md
+  ticket,ENG-12,2026-09-24,2026-09-24,5,tickets/ENG-12.md
+timeline[3]{date,what,task,cite}:
+  2026-09-24,Landed https://github.com/acme/billing/pull/41,eng-12-retry,2026/09/24/2026-09-24.md#fm:41498bba697c
+  2026-09-24,Finished - retrying implemented,eng-12-retry,2026/09/24/2026-09-24.md#fm:4b031c1e8954
+  2026-09-24,Started in billing,eng-12-retry,2026/09/24/2026-09-24.md#fm:70828ed5d9a8
+decisions[1]{date,question,answer,state,cite}:
+  2026-09-24,retry on 429 or back off?,"retry with jitter, never approach B",answered,2026/09/24/2026-09-24.md#fm:82ecb6100262
+open[1]{task,state,since}:
+  eng-12-retry,in flight,2026-09-24
+
+# captain empties the ledger per docs/fleet-ledger.md, then syncs
+$ fm-log.sh recall ENG-12   (after truncation)
+query: ENG-12
+resolved: ticket ENG-12
+entities[3]{kind,name,first,last,touches,note}:
+  ticket,ENG-12,2026-09-24,2026-09-24,5,tickets/ENG-12.md
+  person,Dana Reyes,2026-09-24,2026-09-24,4,people/Dana Reyes.md
+  project,billing,2026-08-25,2026-09-24,6,projects/billing.md
+timeline[4]{date,what,task,cite}:
+  2026-09-24,Noted: private musing about ENG-12,"",2026/09/24/2026-09-24.md#fm:note:n1
+  2026-09-24,Landed https://github.com/acme/billing/pull/41,eng-12-retry,2026/09/24/2026-09-24.md#fm:41498bba697c
+  2026-09-24,Finished - retrying implemented,eng-12-retry,2026/09/24/2026-09-24.md#fm:4b031c1e8954
+  2026-09-24,Started in billing,eng-12-retry,2026/09/24/2026-09-24.md#fm:70828ed5d9a8
+decisions[1]{date,question,answer,state,cite}:
+  2026-09-24,retry on 429 or back off?,"retry with jitter, never approach B",answered,2026/09/24/2026-09-24.md#fm:82ecb6100262
+open[1]{task,state,since}:
+  eng-12-retry,in flight,2026-09-24
+
+# a new record after truncation appends
+query: ENG-12
+resolved: ticket ENG-12
+entities[3]{kind,name,first,last,touches,note}:
+  ticket,ENG-12,2026-09-24,2026-09-24,5,tickets/ENG-12.md
+  person,Dana Reyes,2026-09-24,2026-09-24,4,people/Dana Reyes.md
+  project,billing,2026-08-25,2026-09-24,6,projects/billing.md
+timeline[4]{date,what,task,cite}:
+  2026-09-24,Noted: private musing about ENG-12,"",2026/09/24/2026-09-24.md#fm:note:n1
+  2026-09-24,Landed https://github.com/acme/billing/pull/41,eng-12-retry,2026/09/24/2026-09-24.md#fm:41498bba697c
+  2026-09-24,Finished - retrying implemented,eng-12-retry,2026/09/24/2026-09-24.md#fm:4b031c1e8954
+  2026-09-24,Started in billing,eng-12-retry,2026/09/24/2026-09-24.md#fm:70828ed5d9a8
+decisions[1]{date,question,answer,state,cite}:
+  2026-09-24,retry on 429 or back off?,"retry with jitter, never approach B",answered,2026/09/24/2026-09-24.md#fm:82ecb6100262
+open[1]{task,state,since}:
+  eng-12-retry,in flight,2026-09-24
