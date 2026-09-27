@@ -54,7 +54,7 @@ Sections, in order:
 - **Open at close** - computed for the current day from the fleet snapshot (waiting on you, blocked, in flight), plus any items added by hand, so a session that ends without a sign-off still leaves an accurate record.
 
 Entries land in the day of the record's own time, so work after midnight belongs to the new day.
-Past days are only ever amended, never rewritten, with one repair: a firstmate-anchored line an older renderer cut short with `…` is restored in place to the full text it is a prefix of, keeping its anchor and position, while lines written by hand or that match no full text stay as they are.
+Past days are only ever amended, never rewritten, with one repair: a one-time pass (rerun only when its version in [`bin/fm_log.py`](../bin/fm_log.py) changes) restores in place, keeping anchor and position, each firstmate-anchored `…` that sits exactly where an older renderer cut and matches exactly one full text; lines written by hand, cut elsewhere, or matching several texts stay as they are.
 Text between `%%` marks is a hidden anchor (an Obsidian comment) firstmate uses to place records exactly once; leave it in place.
 Nothing the log records is shortened: task titles, hold reasons, answers, and status notes appear in full, taken from the backlog rows, the ledger, and the snapshot's untruncated in-flight fields rather than the board's shortened display text.
 Worker status text is flattened to one line and stripped of link syntax, and worker reports are never copied in.
