@@ -1,0 +1,6 @@
+ok - a prompt naming a configured ticket id injects the recall pack
+ok - a prompt naming a task id or a registered person alias injects the pack
+ok - a prompt with no exact ticket, task, or person injects nothing
+ok - the log off injects nothing
+ok - an unbuilt or corrupt index and a failing or slow recall inject nothing and exit 0
+ok - harness-started turns and a crewmate worktree inject nothing
