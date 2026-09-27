@@ -778,7 +778,6 @@ class Indexer:
         offset = int(self.meta("ledger_offset") or 0)
         size = os.path.getsize(ledger) if os.path.isfile(ledger) else 0
         if size < offset:
-            self.drop_rows("src='ledger'", ())
             offset = 0
         if size > offset:
             with open(ledger, "rb") as fh:
