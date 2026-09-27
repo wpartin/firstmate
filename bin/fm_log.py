@@ -1500,7 +1500,7 @@ def recent_threads(rc, opts):
     lines, decisions = [], []
     for task, since_day in rc.conn.execute(
             "SELECT task, since FROM open WHERE state='waiting on the captain' ORDER BY since DESC, task"):
-        held = rc.conn.execute("SELECT min(ts) FROM rows WHERE task=? AND kind='decision'", (task,)).fetchone()[0]
+        held = rc.conn.execute("SELECT max(ts) FROM rows WHERE task=? AND kind='decision' AND answer=''", (task,)).fetchone()[0]
         opened = day_of(held) if held else since_day
         if opened and opened < rc.today:
             decisions.append("  %s: waiting on the captain since %s, last touch %s" % (task, opened, since_day or opened))
