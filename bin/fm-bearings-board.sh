@@ -439,7 +439,7 @@ attach_entities() {  # <payload.json>
   tmp="$1.entities"
   if jq --argjson ex "$exported" '
       def with($id): if ($ex.tasks[$id] // null) != null then .entities = $ex.tasks[$id] else . end;
-      .captains_call |= map(with(.key))
+      .captains_call |= map(with(.key | sub("^merge\\."; "")))
       | .underway |= map(with(.id))
       | .charted |= map(with(.id))' "$1" > "$tmp" 2>/dev/null && validate_payload "$tmp"; then
     mv -f -- "$tmp" "$1"
