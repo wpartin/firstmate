@@ -1,4 +1,4 @@
-=== prompt: what did we settle on eng-12?
+=== captain prompt: what did we settle on eng-12?
 Captain's log history for what this message names (fm-log.sh recall; cite it, verify volatile details):
 query: --ticket ENG-12
 resolved: ticket ENG-12
@@ -17,26 +17,7 @@ open[1]{task,state,since}:
   eng-12-retry,in flight,2026-09-24
 
 
-=== prompt: any news from Dana?
-Captain's log history for what this message names (fm-log.sh recall; cite it, verify volatile details):
-query: --person Dana Reyes
-resolved: person Dana Reyes
-entities[3]{kind,name,first,last,touches}:
-  person,Dana Reyes,2026-09-24,2026-09-24,2
-  project,billing,2026-09-24,2026-09-24,2
-  ticket,ENG-12,2026-09-24,2026-09-24,2
-entities_see: people/Dana Reyes.md
-timeline[1]{date,what,task}:
-  2026-09-24,Started in billing,eng-12-retry
-timeline_see: 2026/09/24/2026-09-24.md#fm:cbf24396c686
-decisions[1]{date,question,answer,state}:
-  2026-09-24,retry on 429 or back off?,"retry with jitter, never approach B",answered
-decisions_see: 2026/09/24/2026-09-24.md#fm:82ecb6100262
-open[1]{task,state,since}:
-  eng-12-retry,in flight,2026-09-24
-
-
-=== prompt: status of eng-12-retry
+=== captain prompt: status of eng-12-retry please
 Captain's log history for what this message names (fm-log.sh recall; cite it, verify volatile details):
 query: --ticket ENG-12 --task eng-12-retry
 resolved: ticket ENG-12; task eng-12-retry
@@ -56,6 +37,25 @@ open[1]{task,state,since}:
   eng-12-retry,in flight,2026-09-24
 
 
-=== prompt: please tidy the readme
-(no output - nothing injected)
+=== captain prompt: Dana asked about retries
+Captain's log history for what this message names (fm-log.sh recall; cite it, verify volatile details):
+query: --person Dana Reyes
+resolved: person Dana Reyes
+entities[3]{kind,name,first,last,touches}:
+  person,Dana Reyes,2026-09-24,2026-09-24,2
+  project,billing,2026-09-24,2026-09-24,2
+  ticket,ENG-12,2026-09-24,2026-09-24,2
+entities_see: people/Dana Reyes.md
+timeline[1]{date,what,task}:
+  2026-09-24,Started in billing,eng-12-retry
+timeline_see: 2026/09/24/2026-09-24.md#fm:cbf24396c686
+decisions[1]{date,question,answer,state}:
+  2026-09-24,retry on 429 or back off?,"retry with jitter, never approach B",answered
+decisions_see: 2026/09/24/2026-09-24.md#fm:82ecb6100262
+open[1]{task,state,since}:
+  eng-12-retry,in flight,2026-09-24
+
+
+=== captain prompt: how is the weather today?
+(hook output empty: nothing injected)
 
