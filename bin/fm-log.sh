@@ -271,7 +271,6 @@ do_sync() {  # <quiet 0|1> <wait-seconds>
   fi
   snap=$(stage_snapshot) || { fm_lock_release "$LOCK"; die "cannot stage the snapshot"; }
   generated=$(date '+%Y-%m-%d %H:%M')
-  static_board "$root"
   if [ "$quiet" = 1 ]; then
     python3 "$PY" sync "$root" "$CONFIG" "$LEDGER" "$CURSOR" "$snap" "$(board_target "$root")" "$(today)" "$generated" >/dev/null 2>&1
     rc=$?
@@ -280,6 +279,7 @@ do_sync() {  # <quiet 0|1> <wait-seconds>
     rc=$?
   fi
   [ "$rc" -ne 0 ] || update_index "$root" "$snap" 0
+  static_board "$root"
   rm -f -- "$snap"
   fm_lock_release "$LOCK"
   if [ "$rc" -ne 0 ]; then
