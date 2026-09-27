@@ -430,3 +430,18 @@ test_captain_form_keeps_one_cite_per_group
 test_stale_marker_is_reported
 test_log_off_exits_3_quietly
 test_large_ledger_recall_is_fast
+
+test_entity_export_json() {
+  local home out
+  home=$(make_home export)
+  run_log "$home" export --entities --json >/dev/null 2>&1 && fail "export without an index must fail"
+  fixture "$home"
+  out=$(run_log "$home" export --entities --json) || fail "export failed: $out"
+  out=$(printf '%s' "$out" | jq -c '{version, synced: (.synced | type), task: .tasks["eng-12-retry"], audit: .tasks["old-audit"].project}')
+  assert_equals '{"version":1,"synced":"string","task":{"people":[{"last":"2026-09-24","name":"Dana Reyes"}],"project":{"last":"2026-09-24","name":"billing"},"tickets":[{"id":"ENG-12","last":"2026-09-24","url":"https://tracker.example/ENG-12"}]},"audit":{"last":"2026-09-24","name":"billing"}}' "$out" "entity export"
+  run_log "$home" export --entities >/dev/null 2>&1; assert_equals 2 "$?" "export needs --json"
+  printf 'off\n' > "$home/config/log"
+  run_log "$home" export --entities --json >/dev/null 2>&1; assert_equals 3 "$?" "export with the log off"
+  pass "the entity export dates each entity by its newest touch across tasks"
+}
+test_entity_export_json

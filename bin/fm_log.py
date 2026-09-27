@@ -1176,6 +1176,7 @@ def cmd_index(args):
         idx.ingest_files()
         idx.apply_snapshot(snapshot)
         idx.rebuild_entities()
+        idx.set_meta("synced", datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S"))
     conn.close()
     return 0
 
@@ -1596,6 +1597,49 @@ def cmd_recall(args):
     print(text)
     return 0
 
+def cmd_export(args):
+    """Print each task's tickets, project, and people with the newest touch date of each entity across all tasks."""
+    config_dir, db = args
+    import sqlite3
+    if not os.path.isfile(db):
+        sys.stderr.write("fm-log: the recall index is not built yet; run fm-log.sh index\n")
+        return 1
+    try:
+        conn = sqlite3.connect("file:%s?mode=ro" % db, uri=True, timeout=2)
+        cfg = Config(config_dir)
+        last = {}
+        for sql in ("SELECT e.kind, e.name, max(r.ts) FROM ents e JOIN rows r ON r.task=e.task "
+                    "WHERE e.kind IN ('ticket','project','person') AND e.task!='' GROUP BY e.kind, e.name",
+                    "SELECT l.kind, l.name, max(r.ts) FROM links l JOIN rows r ON r.id=l.row "
+                    "WHERE l.kind IN ('ticket','project','person') GROUP BY l.kind, l.name"):
+            for kind, name, ts in conn.execute(sql):
+                key = (kind, name.lower())
+                if ts and ts > last.get(key, 0):
+                    last[key] = ts
+
+        def when(kind, name):
+            ts = last.get((kind, name.lower()))
+            return day_of(ts) if ts else None
+
+        tasks = {}
+        for task, project in conn.execute("SELECT task, project FROM tasks ORDER BY task").fetchall():
+            ents = conn.execute("SELECT kind, name FROM ents WHERE task=? AND kind IN ('ticket','person') "
+                                "ORDER BY weight DESC, name", (task,)).fetchall()
+            entry = {"tickets": [{"id": n, "url": cfg.ticket_url(n), "last": when("ticket", n)}
+                                 for k, n in ents if k == "ticket"],
+                     "project": {"name": project, "last": when("project", project)} if project else None,
+                     "people": [{"name": n, "last": when("person", n)} for k, n in ents if k == "person"]}
+            if entry["tickets"] or entry["project"] or entry["people"]:
+                tasks[task] = entry
+        synced = conn.execute("SELECT v FROM meta WHERE k='synced'").fetchone()
+        conn.close()
+    except Exception as err:
+        sys.stderr.write("fm-log: export failed: index unavailable (%s); run fm-log.sh index --rebuild\n" % err)
+        return 1
+    print(json.dumps({"version": 1, "synced": synced[0] if synced else None, "tasks": tasks}, sort_keys=True))
+    return 0
+
+
 def cmd_entities(args):
     """Suggest configured ticket ids and registered people found verbatim in text; records nothing."""
     config_dir, text = args
@@ -1624,7 +1668,7 @@ def main(argv):
         return cmd_recall(argv[2:])
     cmds = {"sync": (cmd_sync, 8), "add": (cmd_add, 6), "ticket": (cmd_ticket, 4),
             "learn": (cmd_learn, 3), "unresolved": (cmd_unresolved, 1), "index": (cmd_index, 7),
-            "entities": (cmd_entities, 2)}
+            "entities": (cmd_entities, 2), "export": (cmd_export, 2)}
     if len(argv) < 2 or argv[1] not in cmds or len(argv) - 2 != cmds[argv[1]][1]:
         sys.stderr.write("fm_log.py: internal usage error; run bin/fm-log.sh\n")
         return 2

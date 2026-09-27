@@ -15,7 +15,9 @@
 #
 # build --static renders the same template read-only (every control disabled,
 #            a banner naming the live board when state/.log-board-url or the
-#            payload's live_url names one) to --out (default the stable board
+#            payload's live_url names one; a recorded URL the Lavish server no
+#            longer lists open is cleared first, while an unreachable listing
+#            keeps it) to --out (default the stable board
 #            path with a -static suffix). It never starts a Lavish session and
 #            never binds or arms anything. Without <data.json> it renders the
 #            payload `compose` prints. The captain's log links it
@@ -25,6 +27,18 @@
 #            every captain hold as a free-answer decision card, Underway,
 #            Recently Landed, and Charted Next. It is the static copy's source;
 #            a live `/bearings lavish` board keeps its agent-authored payload.
+#
+# Log entities. Every build (live or static) runs `bin/fm-log.sh export
+# --entities --json` once, bounded by FM_BEARINGS_ENTITY_SECONDS (default 5),
+# and adds that export's `entities` ({tickets:[{id,url,last}], project:
+# {name,last}|null, people:[{name,last}]}) to each Captain's Call, Underway, and
+# Charted Next row whose task id it names. The template renders them as chips
+# with a muted "last touched <N>d" hint measured from the payload's generated
+# date. An absent, off, slow, failing, or invalid export adds nothing.
+#
+# Live board URL. A live build writes the session URL to state/.log-board-url
+# once the session is listed open, and clears it whenever the session is found
+# not live; bin/fm-log.sh links day notes to it.
 #
 # Per-row options. Underway and Charted Next rows carry an Options button
 # whose instruction arrives as an fm-bearings-answer.v1 choice keyed
@@ -166,6 +180,15 @@ validate_payload() {  # <data.json>
           and (keys | sort) == ["artifact", "version"]
           and (.artifact | slug(128))
           and (.version | version));
+    def dated: . == null or (type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$"));
+    def optional_entities:
+      (has("entities") | not) or (.entities == null)
+      or (.entities
+        | type == "object"
+          and ((.tickets // []) | type == "array" and all(type == "object" and (.id | nonempty_string)
+            and (.last | dated) and (((.url // "") | . == "" or test("^https?://[^[:space:]]+$")))))
+          and ((.project == null) or (.project | type == "object" and (.name | nonempty_string) and (.last | dated)))
+          and ((.people // []) | type == "array" and all(type == "object" and (.name | nonempty_string) and (.last | dated))));
     def call_item:
       type == "object"
       and (.key | slug(128))
@@ -179,6 +202,7 @@ validate_payload() {  # <data.json>
           and (.value | slug(128))
           and (.label | nonempty_string)
           and optional_string("hint")] | all)
+      and optional_entities
       and (optional_string("about"))
       and (optional_string("decide"))
       and (optional_string("detail"))
@@ -203,7 +227,7 @@ validate_payload() {  # <data.json>
           and ((has("commits") | not) or ((.commits | type == "number") and .commits >= 0 and (.commits | floor == .)))
           and optional_https_url("pr_url"));
     def underway_item:
-      type == "object" and repo_marker and name_marker and (.id | nonempty_string) and optional_unlanded
+      type == "object" and repo_marker and name_marker and (.id | nonempty_string) and optional_unlanded and optional_entities
       and (.state | nonempty_string) and (.doing | nonempty_string) and (.kind | nonempty_string);
     def landed_item:
       type == "object" and repo_marker and (.id | nonempty_string)
@@ -212,7 +236,7 @@ validate_payload() {  # <data.json>
       and optional_subject;
     def charted_item:
       type == "object" and repo_marker and (.id | slug(128))
-      and optional_unlanded
+      and optional_unlanded and optional_entities
       and (.title | nonempty_string) and (.reason | type == "string")
       and (.dispatchable | type == "boolean")
       and ((has("kind") | not) or (.kind == "queued" or .kind == "warning"))
@@ -299,6 +323,7 @@ establish_board_session() {  # <board>
     printf 'session: reopened\n'
     return 0
   fi
+  clear_board_url
   status=$(lavish_status_field "$out")
   version=$(lavish-axi --version 2>/dev/null | tr -d '[:space:]')
   fail "the board Lavish session is not live after reopening it (lavish-axi ${version:-version-unknown} reported status ${status:-none}); refusing to arm a poll on an ended session"
@@ -394,6 +419,87 @@ await_source_owner() {  # <source-id>
   printf '%s\n' "${owner:-none}"
 }
 
+# --- Log entities -------------------------------------------------------------
+# Chips come from the captain's log export, read once per build and bounded; an
+# absent, off, slow, or failing export leaves every row without chips.
+
+ENTITY_EXPORT_SECONDS=${FM_BEARINGS_ENTITY_SECONDS:-5}
+
+entity_export() {
+  [ -x "$SCRIPT_DIR/fm-log.sh" ] || return 1
+  perl -e 'alarm shift; exec @ARGV or exit 127' "$ENTITY_EXPORT_SECONDS" \
+    "$SCRIPT_DIR/fm-log.sh" export --entities --json 2>/dev/null
+}
+
+# Add an `entities` member to every Captain's Call, Underway, and Charted Next row the export names.
+attach_entities() {  # <payload.json>
+  local exported tmp
+  exported=$(entity_export) || return 0
+  printf '%s' "$exported" | jq -e '.version == 1 and (.tasks | type == "object")' >/dev/null 2>&1 || return 0
+  tmp="$1.entities"
+  if jq --argjson ex "$exported" '
+      def with($id): if ($ex.tasks[$id] // null) != null then .entities = $ex.tasks[$id] else . end;
+      .captains_call |= map(with(.key | sub("^merge\\."; "")))
+      | .underway |= map(with(.id))
+      | .charted |= map(with(.id))' "$1" > "$tmp" 2>/dev/null && validate_payload "$tmp"; then
+    mv -f -- "$tmp" "$1"
+  else
+    rm -f -- "$tmp"
+  fi
+}
+
+# --- Live board URL ------------------------------------------------------------
+# state/.log-board-url names the live board for the captain's log day notes
+# (bin/fm-log.sh reads it). It is written only once the session is proved open
+# and cleared whenever the session is found ended, so the link is never stale.
+
+LAVISH_LIST_SECONDS=${FM_BEARINGS_LAVISH_LIST_SECONDS:-5}
+
+board_url_file() { printf '%s/.log-board-url\n' "${FM_STATE_OVERRIDE:-$FM_HOME/state}"; }
+
+# The session URL the server lists open for <canonical-board-path>, or nothing.
+lavish_board_url() {  # <canonical-board-path>
+  local listing
+  listing=$(lavish-axi 2>/dev/null) || return 1
+  printf '%s\n' "$listing" | awk -v path="$1" '
+    { line = $0; sub(/^[[:space:]]+/, "", line) }
+    index(line, path ",open,\"") == 1 {
+      rest = substr(line, length(path) + 8)
+      sub(/".*/, "", rest)
+      print rest
+      exit
+    }
+  '
+}
+
+record_board_url() {  # <board>
+  local url file
+  url=$(lavish_board_url "$(board_realpath "$1")") || return 0
+  file=$(board_url_file)
+  case "$url" in
+    http://*|https://*)
+      if ! { mkdir -p "${file%/*}" && printf '%s\n' "$url" > "$file.tmp.$$" && mv -f -- "$file.tmp.$$" "$file"; } 2>/dev/null; then
+        rm -f -- "$file.tmp.$$"
+      fi
+      ;;
+  esac
+}
+
+clear_board_url() { rm -f -- "$(board_url_file)"; }
+
+# Clear a recorded URL the Lavish server no longer lists open; an unreachable listing proves nothing, so it stays.
+forget_ended_board_url() {
+  local file url listing
+  file=$(board_url_file)
+  [ -f "$file" ] || return 0
+  command -v lavish-axi >/dev/null 2>&1 || return 0
+  IFS= read -r url < "$file" || true
+  listing=$(perl -e 'alarm shift; exec @ARGV or exit 127' "$LAVISH_LIST_SECONDS" lavish-axi 2>/dev/null) || return 0
+  if [ -z "$url" ] || ! printf '%s\n' "$listing" | grep -qF ",open,\"$url\""; then
+    clear_board_url
+  fi
+}
+
 # Validate, reconcile, and inject <data.json> into the template at <board>.
 render_board() {  # <data.json> <board>
   local data=$1 board=$2 json tmp extracted effective
@@ -407,10 +513,11 @@ render_board() {  # <data.json> <board>
 
   effective=$(umask 077; mktemp "${TMPDIR:-/tmp}/fm-bearings-payload.XXXXXX") \
     || fail "cannot stage the board payload"
-  if ! effective_payload "$data" "$effective"; then
-    rm -f -- "$effective"
+  if ! { cp -- "$data" "$effective.in" && attach_entities "$effective.in" && effective_payload "$effective.in" "$effective"; }; then
+    rm -f -- "$effective" "$effective.in"
     fail "cannot reconcile the board payload against landed work"
   fi
+  rm -f -- "$effective.in"
   json=$(jq -c . "$effective") || { rm -f -- "$effective"; fail "cannot compact the board data"; }
   rm -f -- "$effective"
   # `<` never appears in JSON syntax outside strings, so escaping every
@@ -498,8 +605,9 @@ command_build_static() {  # [--out <path>] [<data.json>]
     rm -f -- "$staged"
     fail "cannot compose the board payload"
   fi
-  if [ -f "${FM_STATE_OVERRIDE:-$FM_HOME/state}/.log-board-url" ]; then
-    IFS= read -r live < "${FM_STATE_OVERRIDE:-$FM_HOME/state}/.log-board-url" || true
+  forget_ended_board_url
+  if [ -f "$(board_url_file)" ]; then
+    IFS= read -r live < "$(board_url_file)" || true
   fi
   if ! jq --arg live "$live" '.static = true
       | if ($live | test("^https?://")) then .live_url = $live else . end' "$staged" > "$staged.json"; then
@@ -533,10 +641,12 @@ command_build() {
       || fail "cannot retire the pre-reopen source generation (observed owner: ${pre_reopen_owner:-none})"
   fi
   if ! lavish_session_listed_open "$(board_realpath "$board")"; then
+    clear_board_url
     version=$(lavish-axi --version 2>/dev/null | tr -d '[:space:]')
     fail "the board Lavish session is not listed open immediately before arming (lavish-axi ${version:-version-unknown}); refusing to arm a poll on observed state not-open"
   fi
   printf 'served: %s\n' "$board"
+  record_board_url "$board"
 
   "$SCRIPT_DIR/fm-captain-hold.sh" bind "$sid" >/dev/null \
     || fail "cannot bind the board source to the keyed-answer intake"

@@ -41,6 +41,7 @@ Day notes kept in the older `DD.md` or `DD/log.md` layouts are still read and am
 ## Day notes
 
 The first line links the captain's board: the live board when one is up, otherwise `board.html` beside the log.
+`bin/fm-bearings-board.sh` records the live board's address in `state/.log-board-url` only after proving its session open, and clears it whenever it finds the session ended, so the link never points at a closed board.
 Sections, in order:
 
 - **Carried over** - the previous day's Open at close, copied when the day starts.
@@ -117,6 +118,8 @@ Firstmate sees relevant history at the moments it acts, without having to rememb
 - **Filing work:** after a successful `bin/fm-tasks-axi.sh add`, a `RELATED:` pack follows when the item has a ticket or person field or its title names a known ticket, person, or project; it is silent otherwise, when the log is off, and with `--json`.
 - **Session start:** the startup digest prints a `RECENT THREADS` block after today's note path, from `bin/fm-log.sh recall --recent --limit 8 --for threads`: captain decisions whose current unanswered hold opened before today, with their last touch, then the 5 most recently touched tickets and projects.
   It is at most 10 lines and 1 KB, prints nothing when the log is off or its index is empty, stale, or unreadable, and never delays or fails the digest; `bin/fm-startup-memory-budget.sh report` shows it on a separate informational line outside the startup-memory budget.
+- **Bearings:** `bin/fm-log.sh export --entities --json` gives each task's tickets, project, and people with the date each was last touched across all work; the Bearings board shows them as small chips on each row, and the `/bearings` chat digest adds them to the end of Captain's Call and Underway lines.
+  An absent or failing export only means no chips.
 - **Questions about the past and bug scoping:** the `captains-log` and `diagnostic-reasoning` skills run recall before answering or diagnosing.
 
 ## When it renders

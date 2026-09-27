@@ -61,6 +61,7 @@ case "${1-}" in
     exit 0
     ;;
   '')
+    if [ -e "$state/stall-list" ]; then exec sleep 30; fi
     if [ -e "$state/end-before-next-list" ]; then
       : > "$state/open"
       rm -f "$state/end-before-next-list"
@@ -769,7 +770,40 @@ test_build_refuses_a_nondecision_reconcile_value() {
   pass "build reserves reconcile across non-decision cards"
 }
 
+test_board_url_follows_the_live_session() {
+  local home data url_file static out started elapsed
+  home=$(make_home board-url)
+  data="$home/payload.json"
+  url_file="$home/state/.log-board-url"
+  static="$home/static.html"
+  write_valid_payload "$data"
+  run_board "$home" build "$data" >/dev/null || fail "the build failed"
+  [ "$(cat "$url_file" 2>/dev/null)" = "http://127.0.0.1:4387/session/0123456789abcdef" ] \
+    || fail "the build did not record the live board URL"
+
+  run_board "$home" build --static --out "$static" "$data" >/dev/null || fail "the static build failed"
+  extract_payload "$static" | jq -e '.live_url == "http://127.0.0.1:4387/session/0123456789abcdef"' >/dev/null \
+    || fail "the static board does not link the live board"
+
+  : > "$home/lavish-state/stall-list"
+  started=$SECONDS
+  out=$(PATH="$home/fakebin:$PATH" FM_BEARINGS_LAVISH_LIST_SECONDS=1 run_board "$home" build --static --out "$static" "$data" 2>&1) \
+    || fail "the static build failed on a stalled listing: $out"
+  elapsed=$((SECONDS - started))
+  [ "$elapsed" -lt 10 ] || fail "a stalled Lavish listing held the static build for ${elapsed}s"
+  [ -f "$url_file" ] || fail "an unreachable listing cleared the recorded URL"
+  rm -f "$home/lavish-state/stall-list"
+
+  end_session_as_captain "$home"
+  run_board "$home" build --static --out "$static" "$data" >/dev/null || fail "the static build failed"
+  assert_absent "$url_file" "an ended session left its board URL recorded"
+  extract_payload "$static" | jq -e 'has("live_url") | not' >/dev/null \
+    || fail "the static board still links an ended session"
+  pass "the recorded board URL follows the live session and a stalled listing is bounded"
+}
+
 test_path_is_stable_and_home_scoped
+test_board_url_follows_the_live_session
 test_build_refuses_malformed_payloads_before_touching_the_board
 test_charted_kind_is_optional_and_accepts_both_values
 test_build_injects_binds_then_arms
