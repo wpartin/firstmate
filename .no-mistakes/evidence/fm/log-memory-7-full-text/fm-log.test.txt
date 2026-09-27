@@ -1,0 +1,17 @@
+ok - ledger records render a golden day note, side notes, and replay is a no-op
+ok - queue.md renders every bucket from the snapshot and keeps the last good view when it fails
+ok - a title over 300 characters renders whole in the day note, queue, and project note
+ok - a truncated firstmate line is restored once in place; hand, manual, off-cap, ambiguous, and non-prefix lines stay
+ok - the one-time repair waits for a sync that has a fleet snapshot
+ok - the log reads the fleet snapshot, never data/backlog.md
+ok - a task filed with a ticket and a person fills its ticket, person, and project notes with identical lines
+ok - entities suggests configured ticket ids and verbatim names or aliases and writes nothing
+ok - records split at midnight and a new day carries the previous Open at close
+ok - answers nest under their hold on its own day; an unanchored answer lands on its day as re:
+ok - inbox notes with a log day thread under each other and carry firstmate's reply
+ok - without config/log-tickets nothing is linked as a ticket
+ok - manual add is idempotent, learn files a note and a ledger record, unresolved finds nothing missing
+ok - the log refuses when off, unreachable, or owned by another home, and replays afterwards
+ok - enable turns on the ledger, lays out the log, and warns about a location outside the home
+ok - start logs by default, honors off and a folder, and a secondmate home logs to its own data/log
+ok - --wait bounds a non-quiet sync's wait for a held lock
