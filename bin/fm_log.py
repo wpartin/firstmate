@@ -1058,8 +1058,11 @@ class Indexer:
         self.put_row("report:" + task, "report", int(mtime), task, what,
                      "data/%s/report.md#top" % task, "report:" + task)
 
-    def learning_links(self, rid, sources):
-        """Link a learning row to the tickets, projects, and tasks it came from; its first task joins the task's entities."""
+    def learning_links(self, rid, sources, replace=False):
+        """Link a learning row to the tickets, projects, and tasks it came from; replace drops the links it had."""
+        if replace:
+            self.conn.execute("DELETE FROM links WHERE row=? AND kind IN ('ticket','project','task')", (rid,))
+            self.conn.execute("UPDATE rows SET task='' WHERE id=?", (rid,))
         pairs = ([("ticket", t) for t in sources["tickets"]] + [("project", p) for p in sources["projects"]]
                  + [("task", t) for t in sources["tasks"]])
         for kind, name in pairs:
@@ -1086,7 +1089,7 @@ class Indexer:
         else:
             rid = self.put_row("learning:" + slug, "learning", int(mtime), "", title,
                                "learnings/%s.md#top" % slug, "log:" + rel, answer=body)
-        self.learning_links(rid, sources)
+        self.learning_links(rid, sources, replace=True)
 
     def note(self, rel, text, mtime):
         if rel.startswith("learnings/"):
@@ -1358,6 +1361,10 @@ class Recall:
                 "SELECT r.id, max(e.weight) FROM rows r JOIN ents e ON e.task = r.task "
                 "WHERE e.kind=? AND e.name=? AND e.task!='' GROUP BY r.id ORDER BY r.ts DESC LIMIT 1500", (kind, name)):
             rows[rid] = weight or 1.0
+        for (rid,) in self.conn.execute(
+                "SELECT DISTINCT l.row FROM links l JOIN ents e ON e.task = l.name "
+                "WHERE l.kind='task' AND e.kind=? AND e.name=? LIMIT 500", (kind, name)):
+            rows.setdefault(rid, 1.0)
         for (rid,) in self.conn.execute("SELECT row FROM links WHERE kind=? AND name=? LIMIT 500", (kind, name)):
             rows[rid] = 1.0
         if kind != "task":
