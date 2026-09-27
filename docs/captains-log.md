@@ -57,9 +57,6 @@ Entries land in the day of the record's own time, so work after midnight belongs
 Past days are only ever amended, never rewritten, with one repair: a one-time pass (run on the first sync that has a fleet snapshot, and rerun only when its version in [`bin/fm_log.py`](../bin/fm_log.py) changes) restores in place, keeping anchor and position, each firstmate-anchored `…` that sits exactly where an older renderer cut and matches exactly one full text; lines written by hand, cut elsewhere, or matching several texts stay as they are.
 Text between `%%` marks is a hidden anchor (an Obsidian comment) firstmate uses to place records exactly once; leave it in place.
 Nothing the log records is shortened: task titles, hold reasons, answers, and status notes appear in full, taken from the backlog rows, the ledger, and the snapshot's untruncated in-flight fields rather than the board's shortened display text.
-When a ledger text field was cut at the ledger's cap ([Limits on text](fleet-ledger.md#limits-on-text)), rendering, sync, repair, and the recall index restore it automatically from its source: the backlog task's hold reason or recorded answer, the task's status log line, the inbox note or reply file, or the learning note.
-No agent step is involved; when the source is gone, the entry shows the capped text followed by `(cut at 2000 characters; full text unavailable)` instead of a silent cut.
-The same one-time repair pass also restores, in place, lines an earlier renderer wrote from a cut field whose source still has the full text.
 Worker status text is flattened to one line and stripped of link syntax, and worker reports are never copied in.
 
 ## Queue
