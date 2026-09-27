@@ -1,0 +1,39 @@
+$ fm-log.sh learn settlement-timing Settlement timing --ticket ENG-77 --project payments
+<home>/data/log/learnings/settlement-timing.md
+
+---
+tasks: []
+tickets: ["ENG-77"]
+projects: ["payments"]
+filed: 2026-09-27
+---
+# Settlement timing
+
+Settlement files arrive after midnight UTC.
+$ fm-log.sh sync
+<home>/data/log/2026/09/27/2026-09-27.md
+
+--- tickets/ENG-77.md
+# ENG-77
+
+[Open in the tracker](https://t.example/ENG-77)
+
+- 2026-09-27 09:54 Learned [[settlement-timing|Settlement timing]] %% fm:813dbb580c3d %%
+$ fm-log.sh recall --ticket ENG-77 --for brief
+query: --ticket ENG-77
+resolved: ticket ENG-77
+entities[1]{kind,name,first,last,touches}:
+  ticket,ENG-77,2026-09-27,2026-09-27,1
+learnings[1]{slug,title,filed}:
+  settlement-timing,Settlement timing,2026-09-27
+
+$ fm-log.sh recall --project payments --for brief
+query: --project payments
+resolved: project payments
+entities[1]{kind,name,first,last,touches}:
+  project,payments,2026-09-27,2026-09-27,1
+learnings[1]{slug,title,filed}:
+  settlement-timing,Settlement timing,2026-09-27
+
+$ fm-log.sh recall --ticket ENG-99 --for brief
+
