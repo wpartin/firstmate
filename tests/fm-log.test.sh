@@ -188,31 +188,39 @@ test_long_text_renders_whole_everywhere() {
 }
 
 test_truncated_lines_are_repaired_in_place() {
-  local home long note before after n
+  local home long twin note later before after n
   home=$(make_home repair)
   long="Relink fork history to upstream after the squashed sync, and merge upstream main again so every later sync stays a plain fast-forward"
-  jq -n --arg t "$long" '{queue:[{id:"relink",title:$t,repo:"web",state:"in_flight",blocked_by:[],tickets:[],people:[]}],in_flight:[]}' > "$home/snapshot.json"
+  twin="Relink fork history to upstream after the squashed sync, then rebuild every mirror from scratch so the other path works too"
+  jq -n --arg t "$long" --arg u "$twin" '{queue:[{id:"relink",title:$t,repo:"web",state:"in_flight",blocked_by:[],tickets:[],people:[]},{id:"twin",title:$u,repo:"web",state:"queued",blocked_by:[],tickets:[],people:[]},{id:"twin2",title:($u + " again"),repo:"web",state:"queued",blocked_by:[],tickets:[],people:[]}],in_flight:[]}' > "$home/snapshot.json"
   note=$(day_note "$home" 2026-09-24)
   mkdir -p "$(dirname "$note")"
   cat > "$note" <<EOF
 ## Worked through
 
 - 09:00 Started ${long:0:89}… in [[web]] %% fm:aaaaaaaaaaaa %%
-- 09:01 Finished: ${long:0:60}… - not a prefix of anything recorded… %% fm:bbbbbbbbbbbb %%
+- 09:01 Finished: ${long:0:70}… - not a prefix of anything recorded… %% fm:bbbbbbbbbbbb %%
 - 09:02 Hand note: ${long:0:89}…
 - 09:03 Edited by hand: Relink fork history everywhere… %% fm:cccccccccccc %%
 - 09:04 Kept: ${long:0:40}… %% fm:manual:dddddddddddd %%
+- 09:05 Status: ${long:0:60}… %% fm:eeeeeeeeeeee %%
+- 09:06 Shared: ${twin:0:89}… %% fm:ffffffffffff %%
 EOF
   before=$(cat "$note")
   run_log "$home" sync >/dev/null 2>&1 || fail "sync failed"
   after=$(cat "$note")
   has "$after" "- 09:00 Started $long in [[web]] %% fm:aaaaaaaaaaaa %%"
   has "$after" "- 09:01 Finished: $long - not a prefix of anything recorded… %% fm:bbbbbbbbbbbb %%"
-  for n in 2 3 4; do
+  for n in 2 3 4 5 6; do
     has "$after" "$(printf '%s\n' "$before" | grep -F -- "- 09:0$n ")" "untouched line 09:0$n"
   done
-  assert_equals "$(printf '%s\n' "$before" | grep -o 'fm:[a-z:]*')" "$(printf '%s\n' "$after" | grep -o 'fm:[a-z:]*' | head -4)" "anchors keep their order"
-  pass "a truncated firstmate line is restored in place; hand, manual, and non-prefix lines stay"
+  assert_equals "$(printf '%s\n' "$before" | grep -o 'fm:[a-z:]*')" "$(printf '%s\n' "$after" | grep -o 'fm:[a-z:]*' | head -6)" "anchors keep their order"
+  later=$(day_note "$home" 2026-09-23)
+  mkdir -p "$(dirname "$later")"
+  printf -- '## Worked through\n\n- 09:07 Later: %s… %%%% fm:gggggggggggg %%%%\n' "${long:0:89}" > "$later"
+  run_log "$home" sync >/dev/null 2>&1 || fail "second sync failed"
+  has "$(cat "$later")" "- 09:07 Later: ${long:0:89}… %% fm:gggggggggggg %%" "a later sync does not walk the log again"
+  pass "a truncated firstmate line is restored once in place; hand, manual, off-cap, ambiguous, and non-prefix lines stay"
 }
 
 test_queue_view_renders_from_the_snapshot() {

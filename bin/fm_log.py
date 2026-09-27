@@ -35,8 +35,11 @@ BOARD_LINE = re.compile(r"^\[Captain's board\]\(")
 ANCHOR = "%% fm:{} %%"
 STATUS_STATES = ("done", "failed", "blocked", "needs-decision")
 QUEUED_SHOWN = 15
-# The shortest shortened prefix repair will trust as the start of a full text.
-REPAIR_MIN = 12
+# Bump to rerun the one-time repair of lines older renderers cut short.
+REPAIR_VERSION = "1"
+# Where older renderers cut: fm_log clean() kept cap-1 characters, the fleet snapshot's jq trunc kept n.
+REPAIR_CLEAN_CAPS = (90, 200)
+REPAIR_TRUNC_CAPS = (70, 90, 120, 160)
 DONE_SHOWN = 12
 
 
@@ -527,33 +530,35 @@ class Log:
                         continue
                     if isinstance(rec, dict):
                         raw += [rec.get(k) for k in ("reason", "text", "words", "title")]
-        out = set()
+        out = {}
         for text in raw:
             if isinstance(text, str):
                 text = clean(text, self.cfg)
-                out.update(t for t in (text, self.linked(text)) if len(t) > REPAIR_MIN)
-        return sorted(out, key=len, reverse=True)
+                for full in (text, self.linked(text)):
+                    cuts = {full[: cap - 1].rstrip() for cap in REPAIR_CLEAN_CAPS}
+                    cuts |= {full[:cap] for cap in REPAIR_TRUNC_CAPS}
+                    for cut in cuts:
+                        if cut and cut != full:
+                            out.setdefault(cut + "…", set()).add(full)
+        return out
 
     @staticmethod
     def repair_line(line, texts):
-        """Rewrite each `<prefix>…` whose prefix starts one full text into that text; anything else stays."""
+        """Rewrite each `<prefix>…` an older renderer cut from exactly one full text into that text; anything else stays."""
         pos = 0
         while True:
             i = line.find("…", pos)
             if i < 0:
                 return line
             best = None
-            for full in texts:
-                start = line.rfind(full[:REPAIR_MIN], 0, i)
-                if start < 0 or line.startswith(full, start):
-                    continue
-                prefix = line[start:i]
-                if full.startswith(prefix) and len(full) > len(prefix) and (best is None or len(prefix) > len(best[1])):
-                    best = (start, prefix, full)
+            for cut, fulls in texts.items():
+                if line.endswith(cut, 0, i + 1) and len(fulls) == 1 and (best is None or len(cut) > len(best[0])):
+                    best = (cut, next(iter(fulls)))
             if best is None:
                 pos = i + 1
                 continue
-            start, prefix, full = best
+            cut, full = best
+            start = i + 1 - len(cut)
             line = line[:start] + full + line[i + 1:]
             pos = start + len(full)
 
@@ -712,7 +717,10 @@ def cmd_sync(args):
             log.render(rec, eid)
             rendered += 1
         new_offset = offset + len(complete)
-    log.repair(ledger)
+    repair_path = os.path.join(os.path.dirname(cursor_path), ".log-repair")
+    if (read(repair_path) or "").strip() != REPAIR_VERSION:
+        log.repair(ledger)
+        write_atomic(repair_path, REPAIR_VERSION + "\n")
     today_path = log.refresh_today()
     queue_path = os.path.join(root, "queue.md")
     if snapshot is not None and snapshot.get("queue") is not None:
