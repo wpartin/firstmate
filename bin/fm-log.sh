@@ -28,7 +28,9 @@
 #   fm-log.sh disable              write `off` to config/log; the files stay
 #   fm-log.sh path                 print the log root; exit 1 when off
 #   fm-log.sh sync [--quiet] [--wait <seconds>]
-#                                  render new ledger records from state/.log-cursor,
+#                                  render new ledger records from state/.log-cursor
+#                                  (each task's dispatch fields kept in
+#                                  state/.log-entities.json for its later records),
 #                                  recompute today's board link and Open at close,
 #                                  regenerate queue.md, and print today's note path.
 #                                  --quiet prints nothing and never fails the caller
@@ -44,6 +46,12 @@
 #                                  learning.filed on the ledger (the day note's
 #                                  Worked through link arrives at the next sync)
 #   fm-log.sh unresolved           list [[links]] with no note behind them
+#   fm-log.sh entities <text>      at intake, suggest the configured ticket ids and
+#                                  the registered people (names or aliases) found
+#                                  verbatim in <text>, the captain's own words;
+#                                  reads only config, records nothing, works with
+#                                  the log off. Firstmate decides whether to file
+#                                  them with bin/fm-tasks-axi.sh add --ticket/--people.
 #   fm-log.sh index [--rebuild]    bring the derived recall index up to date; sync
 #                                  already does this after every render. --rebuild
 #                                  recreates it from the ledger, notes, and reports.
@@ -55,12 +63,14 @@
 #
 # Recall:
 #   Entity flags are repeatable. Free terms that exactly name a configured ticket
-#   (config/log-tickets), a task id, a project (data/projects.md or any logged
-#   task), or a person (config/log-people or a task's people line) become entity
+#   (config/log-tickets) or a task's ticket field, a task id, a project
+#   (data/projects.md or any logged task), or a person (config/log-people, one of
+#   its aliases, or a task's people field) become entity
 #   filters, printed on the `resolved:` line; common question words are dropped,
 #   the remaining terms go to full-text search (stemmed, prefix matching), and a
 #   term with no text hit that closely resembles one entity name resolves to it
-#   by trigram similarity. Rows rank entity match, then decisions, learnings,
+#   by trigram similarity. A ticket matched only from a task's title or id
+#   weighs half as much as one in its ticket field. Rows rank entity match, then decisions, learnings,
 #   outcomes and reports, then other timeline lines, each weighted by recency
 #   (60-day half-life) and text relevance. Open items for the matched tasks
 #   (all of them with --recent) always print.
@@ -383,6 +393,10 @@ case "$cmd" in
     rm -f -- "$snap"
     fm_lock_release "$LOCK"
     [ "$rc" -eq 0 ] || die "updating the recall index failed; state/.log-index-stale marks it"
+    ;;
+  entities)
+    [ "$#" -eq 1 ] || usage
+    exec python3 "$PY" entities "$CONFIG" "$1"
     ;;
   recall)
     root=$(log_root) || exit 3

@@ -114,6 +114,9 @@
 #
 # --contribution-input prints only the canonical backlog/tasks ownership pair,
 # without worker observations or cross-home collection, for the home-local poll.
+# --task-entities <id> prints only {tickets,people} for that backlog row (empty
+# arrays when the row or its fields are absent), for bin/fm-spawn.sh's ledger
+# record; it reads nothing but the backlog.
 # Compatibility: JSON is the primary machine-readable surface.
 # Human views must render this output instead of parsing state files again.
 set -u
@@ -234,6 +237,7 @@ usage() {
   cat <<'EOF'
 usage: fm-fleet-snapshot.sh --json
        fm-fleet-snapshot.sh --secondmate-home-summary
+       fm-fleet-snapshot.sh --task-entities <id>
 
 Print a structured snapshot of the firstmate fleet.
 JSON is the stable machine-readable output contract. The default snapshot
@@ -241,6 +245,9 @@ refreshes only its parent-side remote-summary cache as an observational side eff
 
 --contribution-input emits the canonical local backlog/tasks ownership pair only,
 without worker observations or cross-home collection.
+
+--task-entities <id> emits {tickets,people} parsed from that backlog row's
+structured `ticket:` and `people:` body lines, reading only the backlog.
 
 --secondmate-home-summary emits the bounded structured summary used after a
 validated registered-home handoff. It is local-only, skips nested secondmate
@@ -291,6 +298,7 @@ case "${1:---json}" in
   --json) ;;
   --secondmate-home-summary) OUTPUT_MODE=secondmate-home-summary ;;
   --contribution-input) OUTPUT_MODE=contribution-input ;;
+  --task-entities) OUTPUT_MODE="task-entities"; ENTITY_TASK=${2:-}; [ -n "$ENTITY_TASK" ] || { usage >&2; exit 2; } ;;
   -h|--help) usage; exit 0 ;;
   *) usage >&2; exit 2 ;;
 esac
@@ -471,6 +479,11 @@ backlog_json() {  # [<backlog-path>] - defaults to this home's $BACKLOG
         elif $reported != null then {verb:"reported",date:$reported}
         elif $done != null then {verb:"done",date:$done}
         else {verb:null,date:null} end;
+    # Structured `ticket:` and `people:` body lines, the one parse every reader projects.
+    def body_list($lines; $key):
+      [($lines // [])[] | select(test("^" + $key + ":"; "i"))
+       | sub("^" + $key + ":[[:space:]]*"; ""; "i") | split(",")[] | trim | select(. != "")]
+      | reduce .[] as $v ([]; if any(.[]; . == $v) then . else . + [$v] end);
     def row_match($line):
       (($line | capture("^[-*][[:space:]]+\\[(?<check>[ xX])\\][[:space:]]+(?<id>[^[:space:]]+)[[:space:]]+-[[:space:]]+(?<rest>.*)$")?) //
        (($line | capture("^[-*][[:space:]]+\\*\\*(?<id>[^*]+)\\*\\*[[:space:]]+-[[:space:]]+(?<rest>.*)$")?)
@@ -540,7 +553,9 @@ backlog_json() {  # [<backlog-path>] - defaults to this home's $BACKLOG
                   else cap(.body_lines[-1]; "^(?<v>local main)$")
                   end))
           | .body_excerpt = ((.body_lines | join(" "))[:240])
-        else . end)
+        else . end
+        | .tickets = body_list(.body_lines; "ticket")
+        | .people = body_list(.body_lines; "people"))
     | .records as $records
     | (reduce ($records[] | select(.structured)) as $record ({};
          .[$record.id] = ((.[$record.id] // true) and ($record.state == "done")))) as $resolved_ids
@@ -1973,6 +1988,11 @@ scout_report_lines() {
 }
 
 BACKLOG_JSON=$(backlog_json) || { echo "fm-fleet-snapshot: backlog read failed" >&2; exit 1; }
+if [ "$OUTPUT_MODE" = task-entities ]; then
+  printf '%s\n' "$BACKLOG_JSON" | jq -c --arg id "$ENTITY_TASK" \
+    '([.records[] | select(.structured and .id == $id)][0] // {}) | {tickets:(.tickets // []), people:(.people // [])}'
+  exit $?
+fi
 contribution_tasks_json() {
   local meta id merge_authority
   for meta in "$STATE"/*.meta; do

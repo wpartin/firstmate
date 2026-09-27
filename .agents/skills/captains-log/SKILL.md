@@ -15,6 +15,7 @@ The log is a projection of durable records, so firstmate's job is to keep feedin
 
 ## What keeps the log correct
 
+- Tickets and people reach the log only as structured fields at filing: run `bin/fm-log.sh entities "<the captain's words>"` for suggestions, then pass the ones that apply as `--ticket` and `--people` to `bin/fm-tasks-axi.sh add`.
 - Dispatch, worker status, PR-ready, merge, and cleanup already reach the log through their owning scripts.
 - A question for the captain reaches the log only as a captain hold: always hold through `bin/fm-captain-hold.sh hold`, never by writing a question into a note.
 - The captain's answer reaches the log only as a recorded answer: `bin/fm-send.sh --resolve-key`, `bin/fm-captain-hold.sh answer`, or the board's bound `answers` intake.

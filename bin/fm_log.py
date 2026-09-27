@@ -69,8 +69,17 @@ class Config:
                 continue
             self.tickets.append((rx, template.strip()))
         people = read(os.path.join(config_dir, "log-people"))
-        self.people = None if people is None else {
-            p.strip() for p in people.splitlines() if p.strip() and not p.startswith("#")}
+        self.people = None if people is None else set()
+        self.aliases = []
+        for line in (people or "").splitlines():
+            if not line.strip() or line.startswith("#"):
+                continue
+            name, _, rest = line.partition("\t")
+            name = name.strip()
+            if not name:
+                continue
+            self.people.add(name)
+            self.aliases += [(a.strip(), name) for a in rest.split(",") if a.strip()]
         self.redact = []
         for line in (read(os.path.join(config_dir, "log-redact")) or "").splitlines():
             if line.strip() and not line.lstrip().startswith("#"):
@@ -95,8 +104,22 @@ class Config:
                 return template.replace("{id}", tid)
         return ""
 
-    def person_ok(self, name):
-        return self.people is None or name in self.people
+    def person(self, name):
+        """The canonical name for a person or alias, or None when an allowlist leaves it out."""
+        name = (name or "").strip()
+        if self.people is None or name in self.people:
+            return name or None
+        folded = name.lower()
+        return next((canon for canon in self.people if canon.lower() == folded), None) or next(
+            (canon for alias, canon in self.aliases if alias.lower() == folded), None)
+
+    def persons(self, names):
+        out = []
+        for name in names or []:
+            canon = self.person(name)
+            if canon and canon not in out:
+                out.append(canon)
+        return out
 
 
 def clean(text, cfg, cap=TEXT_CAP):
@@ -115,9 +138,10 @@ def safe_name(name):
 
 
 class Log:
-    def __init__(self, root, config_dir, snapshot, board_target, today, carry_limit=None):
+    def __init__(self, root, config_dir, snapshot, board_target, today, carry_limit=None, known=None):
         self.root = root
         self.cfg = Config(config_dir)
+        self.known = known if known is not None else {}
         self.snapshot = snapshot or {}
         self.board_target = board_target
         self.today = today
@@ -286,14 +310,26 @@ class Log:
         name = row.get("title") or (self.inflight.get(task) or {}).get("name") or task
         return clean(name, self.cfg, 90)
 
-    def linked(self, text):
-        for tid in self.cfg.ticket_ids(text):
+    def linked(self, text, tickets=()):
+        for tid in list(tickets) + self.cfg.ticket_ids(text):
             text = re.sub(r"(?<!\[)\b%s\b(?!\])" % re.escape(tid), "[[%s]]" % tid, text, flags=re.I)
         return text
 
-    def people(self, task):
+    def entities(self, task):
+        """(project, tickets, people, inferred): the dispatch record's fields, then the backlog row's, then a title match."""
+        known = self.known.get(task) or {}
         row = self.rows.get(task) or {}
-        return [p for p in row.get("people") or [] if self.cfg.person_ok(p)]
+        project = known.get("project") or row.get("repo") or ""
+        tickets = []
+        for tid in list(known.get("tickets") or []) + list(row.get("tickets") or []):
+            tid = clean(tid, self.cfg, 80).upper()
+            if tid and tid not in tickets:
+                tickets.append(tid)
+        inferred = not tickets
+        if inferred:
+            tickets = self.cfg.ticket_ids(task, row.get("title") or "")
+        people = self.cfg.persons(list(known.get("people") or []) + list(row.get("people") or []))
+        return project, tickets, people, inferred
 
     # ---- side notes: tickets, projects, people, learnings ---------------
     def side_note(self, folder, name, header, line, aid):
@@ -311,19 +347,19 @@ class Log:
             lines.append("")
             self.store(path, lines)
 
-    def fan_out(self, task, project, stamp, text, aid, extra_ids=()):
-        row = self.rows.get(task) or {}
-        for tid in self.cfg.ticket_ids(task, row.get("title") or "", *extra_ids):
+    def fan_out(self, task, when, label, detail, aid):
+        """One `<date time> <label>: <title>[ - <detail>]` line in every ticket, project, and person note of the task."""
+        project, tickets, people, _ = self.entities(task)
+        line = "%s %s: %s%s" % (when.strftime("%Y-%m-%d %H:%M"), label, self.title(task),
+                                (" - " + detail) if detail else "")
+        for tid in tickets:
             url = self.cfg.ticket_url(tid)
             header = ["# " + tid, ""] + (["[Open in the tracker](%s)" % url, ""] if url else [])
-            self.side_note("tickets", tid, header, "%s %s" % (stamp, text), aid)
-        project = project or row.get("repo")
+            self.side_note("tickets", tid, header, line, aid)
         if project:
-            self.side_note("projects", project, ["# " + clean(project, self.cfg, 80), ""],
-                           "%s %s" % (stamp, text), aid)
-        for person in self.people(task):
-            self.side_note("people", person, ["# " + clean(person, self.cfg, 80), ""],
-                           "%s %s" % (stamp, text), aid)
+            self.side_note("projects", project, ["# " + clean(project, self.cfg, 80), ""], line, aid)
+        for person in people:
+            self.side_note("people", person, ["# " + clean(person, self.cfg, 80), ""], line, aid)
 
     # ---- events -----------------------------------------------------------
     def render(self, rec, eid):
@@ -345,16 +381,26 @@ class Log:
         if not self.has_anchor(path, eid):
             self.append_bullet(path, "Worked through", "%s %s %s" % (stamp, text, ANCHOR.format(eid)))
 
-    def people_suffix(self, task):
-        names = self.people(task)
-        return (" with " + ", ".join("[[%s]]" % safe_name(n) for n in names)) if names else ""
+    def task_title(self, task):
+        return self.linked(self.title(task), self.entities(task)[1])
 
     def on_task_dispatched(self, rec, eid, day, stamp, task, when):
-        project = rec.get("project") or ""
+        fields = {"project": rec.get("project") or ""}
+        for key in ("tickets", "people"):
+            if isinstance(rec.get(key), list):
+                fields[key] = [str(v) for v in rec[key] if isinstance(v, str)]
+        self.known[task] = fields
+        project, tickets, people, inferred = self.entities(task)
+        title = self.task_title(task)
         where = " in [[%s]]" % safe_name(project) if project else ""
-        text = "Started %s%s%s" % (self.linked(self.title(task)), where, self.people_suffix(task))
+        extra = [t for t in tickets if not inferred and "[[%s]]" % t not in title]
+        text = "Started %s%s%s%s" % (title, (" for " + ", ".join("[[%s]]" % t for t in extra)) if extra else "", where,
+                                     (" with " + ", ".join("[[%s]]" % safe_name(n) for n in people)) if people else "")
         self.worked(day, stamp, text, eid)
-        self.fan_out(task, project, when.strftime("%Y-%m-%d %H:%M"), "Started " + self.title(task), eid)
+        self.fan_out(task, when, "Started", "", eid)
+
+    def on_task_cleaned_up(self, rec, eid, day, stamp, task, when):
+        self.known.pop(task, None)
 
     def on_task_status(self, rec, eid, day, stamp, task, when):
         state = rec.get("state")
@@ -363,35 +409,35 @@ class Log:
         label = {"done": "Finished", "failed": "Failed", "blocked": "Blocked",
                  "needs-decision": "Needs a decision"}[state]
         detail = clean(rec.get("text"), self.cfg)
-        text = "%s: %s%s" % (label, self.linked(self.title(task)), (" - " + detail) if detail else "")
+        text = "%s: %s%s" % (label, self.task_title(task), (" - " + detail) if detail else "")
         self.worked(day, stamp, text, eid)
-        self.fan_out(task, None, when.strftime("%Y-%m-%d %H:%M"), "%s: %s" % (label, detail or self.title(task)), eid)
+        self.fan_out(task, when, label, detail, eid)
 
     def on_task_pr_ready(self, rec, eid, day, stamp, task, when):
         url = clean(rec.get("pr"), self.cfg, 300)
-        text = "Ready for review: %s %s" % (self.linked(self.title(task)), url)
+        text = "Ready for review: %s %s" % (self.task_title(task), url)
         self.worked(day, stamp, text, eid)
-        self.fan_out(task, None, when.strftime("%Y-%m-%d %H:%M"), "Ready for review: " + url, eid, (url,))
+        self.fan_out(task, when, "Ready for review", url, eid)
 
     def on_task_merged(self, rec, eid, day, stamp, task, when):
         url = clean(rec.get("pr"), self.cfg, 300) if rec.get("via") == "pr" else ""
-        text = "Landed %s%s" % (self.linked(self.title(task)), (" " + url) if url else " on the local branch")
+        text = "Landed %s%s" % (self.task_title(task), (" " + url) if url else " on the local branch")
         self.worked(day, stamp, text, eid)
-        self.fan_out(task, None, when.strftime("%Y-%m-%d %H:%M"), "Landed" + ((" " + url) if url else ""), eid)
+        self.fan_out(task, when, "Landed", url or "on the local branch", eid)
 
     def on_captain_held(self, rec, eid, day, stamp, task, when):
         path = self.day(day)
         if self.has_anchor(path, eid):
             return
         reason = clean(rec.get("reason"), self.cfg)
-        question = "%s: %s" % (self.linked(self.title(task)), reason) if reason else self.linked(self.title(task))
+        question = "%s: %s" % (self.task_title(task), reason) if reason else self.task_title(task)
         self.append_bullet(path, "Asked and answered", "%s %s %s" % (
             question, ANCHOR.format("hold:" + task), ANCHOR.format(eid)))
         if rec.get("until"):
             found = self.find_anchor(ANCHOR.format(eid))
             if found:
                 self.insert_child(found[0], found[1], "deferred to [[%s]]" % clean(rec["until"], self.cfg, 10))
-        self.fan_out(task, None, when.strftime("%Y-%m-%d %H:%M"), "Asked: " + reason, eid)
+        self.fan_out(task, when, "Asked", reason, eid)
 
     def on_captain_answered(self, rec, eid, day, stamp, task, when):
         if self.find_anchor(ANCHOR.format(eid)):
@@ -411,10 +457,10 @@ class Log:
             self.insert_child(found[0], found[1], line)
         else:
             path = self.day(day)
-            self.append_bullet(path, "Asked and answered", "re: %s" % self.linked(self.title(task)))
-            found = self.find_anchor("re: %s" % self.linked(self.title(task)))
+            self.append_bullet(path, "Asked and answered", "re: %s" % self.task_title(task))
+            found = self.find_anchor("re: %s" % self.task_title(task))
             self.insert_child(found[0], found[1], line)
-        self.fan_out(task, None, when.strftime("%Y-%m-%d %H:%M"), "Answered: " + words, eid)
+        self.fan_out(task, when, "Answered", words, eid)
 
     def on_inbox_noted(self, rec, eid, day, stamp, task, when):
         log_day = rec.get("log_day")
@@ -543,7 +589,13 @@ def cmd_sync(args):
                 snapshot = json.load(fh)
         except (OSError, ValueError):
             snapshot = None
-    log = Log(root, config_dir, snapshot, board_target, today)
+    # Each task's dispatch fields outlive the sync that read them, so later records fan out to the same notes.
+    known_path = os.path.join(os.path.dirname(cursor_path), ".log-entities.json")
+    try:
+        known = json.loads(read(known_path) or "{}")
+    except ValueError:
+        known = {}
+    log = Log(root, config_dir, snapshot, board_target, today, known=known if isinstance(known, dict) else {})
     offset = 0
     try:
         offset = int((read(cursor_path) or "0").strip() or 0)
@@ -585,6 +637,7 @@ def cmd_sync(args):
             lines.insert(2, "> Stale since %s: the fleet snapshot could not be read." % generated)
             write_atomic(queue_path, "\n".join(lines))
     log.flush()
+    write_atomic(known_path, json.dumps(log.known, sort_keys=True) + "\n")
     # The cursor advances only after every file is written, so a crash replays.
     tmp = cursor_path + ".tmp"
     with open(tmp, "w") as fh:
@@ -655,7 +708,9 @@ def cmd_unresolved(args):
 
 # ---- recall index: derived and disposable, `index --rebuild` recreates it ----
 
-INDEX_SCHEMA = "1"
+INDEX_SCHEMA = "2"
+# A ticket matched only from a task title or id counts for less than one filed in its ticket: field.
+INFERRED_WEIGHT = 0.5
 GROUP_WEIGHT = {"decision": 5.0, "learning": 4.0, "outcome": 3.0, "report": 3.0, "timeline": 1.0}
 HALF_LIFE_DAYS = 60.0
 DEFAULT_LINES = 40
@@ -685,7 +740,7 @@ def index_schema(conn):
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v TEXT);
         CREATE TABLE IF NOT EXISTS files(key TEXT PRIMARY KEY, mtime REAL, size INTEGER);
-        CREATE TABLE IF NOT EXISTS tasks(task TEXT PRIMARY KEY, title TEXT, project TEXT, people TEXT);
+        CREATE TABLE IF NOT EXISTS tasks(task TEXT PRIMARY KEY, title TEXT, project TEXT, people TEXT, tickets TEXT);
         CREATE TABLE IF NOT EXISTS rows(id INTEGER PRIMARY KEY, uid TEXT UNIQUE, kind TEXT, ts INTEGER,
             task TEXT, what TEXT, answer TEXT, state TEXT, cite TEXT, src TEXT, private INTEGER);
         CREATE INDEX IF NOT EXISTS rows_task ON rows(task, ts);
@@ -694,7 +749,7 @@ def index_schema(conn):
         CREATE TABLE IF NOT EXISTS links(row INTEGER, kind TEXT, name TEXT COLLATE NOCASE);
         CREATE INDEX IF NOT EXISTS links_name ON links(kind, name);
         CREATE INDEX IF NOT EXISTS links_row ON links(row);
-        CREATE TABLE IF NOT EXISTS ents(kind TEXT, name TEXT COLLATE NOCASE, task TEXT, note TEXT);
+        CREATE TABLE IF NOT EXISTS ents(kind TEXT, name TEXT COLLATE NOCASE, task TEXT, note TEXT, weight REAL);
         CREATE INDEX IF NOT EXISTS ents_name ON ents(kind, name);
         CREATE INDEX IF NOT EXISTS ents_task ON ents(task);
         CREATE TABLE IF NOT EXISTS open(task TEXT, state TEXT, since TEXT);
@@ -768,10 +823,25 @@ class Indexer:
     def task_seen(self, task, project=None):
         if not task:
             return
-        self.conn.execute("INSERT OR IGNORE INTO tasks(task,title,project,people) VALUES(?,?,?,?)",
-                          (task, "", "", ""))
+        self.conn.execute("INSERT OR IGNORE INTO tasks(task,title,project,people,tickets) VALUES(?,?,?,?,?)",
+                          (task, "", "", "", ""))
         if project:
             self.conn.execute("UPDATE tasks SET project=? WHERE task=?", (project, task))
+
+    def task_fields(self, task, tickets, people):
+        """Merge structured ticket ids and canonical people into a task's entity fields."""
+        old_t, old_p = self.conn.execute("SELECT tickets, people FROM tasks WHERE task=?", (task,)).fetchone()
+        merged_t = [t for t in (old_t or "").split("\n") if t]
+        for tid in tickets or []:
+            tid = clean(tid, self.cfg, 80).upper() if isinstance(tid, str) else ""
+            if tid and tid not in merged_t:
+                merged_t.append(tid)
+        merged_p = [p for p in (old_p or "").split("\n") if p]
+        for person in self.cfg.persons([clean(p, self.cfg, 80) for p in people or [] if isinstance(p, str)]):
+            if person not in merged_p:
+                merged_p.append(person)
+        self.conn.execute("UPDATE tasks SET tickets=?, people=? WHERE task=?",
+                          ("\n".join(merged_t), "\n".join(merged_p), task))
 
     # ---- ledger ---------------------------------------------------------
     def ingest_ledger(self, ledger):
@@ -808,6 +878,9 @@ class Indexer:
         if event == "task.dispatched":
             project = c(rec.get("project"), 80)
             self.task_seen(task, project)
+            if task:
+                self.task_fields(task, rec.get("tickets") if isinstance(rec.get("tickets"), list) else [],
+                                 rec.get("people") if isinstance(rec.get("people"), list) else [])
             kind = c(rec.get("kind"), 20)
             what = "Started" + ((" " + kind) if kind and kind != "ship" else "") + ((" in " + project) if project else "")
             self.put_row(eid, "timeline", ts, task, what, cite, "ledger")
@@ -999,9 +1072,8 @@ class Indexer:
             if not task:
                 continue
             self.task_seen(task, clean(r.get("repo"), self.cfg, 80))
-            people = [clean(p, self.cfg, 80) for p in r.get("people") or [] if self.cfg.person_ok(p)]
-            self.conn.execute("UPDATE tasks SET title=?, people=? WHERE task=?",
-                              (clean(r.get("title"), self.cfg, 120), "\n".join(people), task))
+            self.conn.execute("UPDATE tasks SET title=? WHERE task=?", (clean(r.get("title"), self.cfg, 120), task))
+            self.task_fields(task, r.get("tickets"), r.get("people"))
         for r in snapshot.get("in_flight") or []:
             task = str(r.get("id") or "")
             if task:
@@ -1041,24 +1113,26 @@ class Indexer:
         conn.execute("DELETE FROM ents")
         conn.execute("DELETE FROM tasks_fts")
         ents = set()
-        for task, title, project, people in conn.execute("SELECT task, title, project, people FROM tasks").fetchall():
-            ents.add(("task", task, task, ""))
+        for task, title, project, people, tickets in conn.execute(
+                "SELECT task, title, project, people, tickets FROM tasks").fetchall():
+            ents.add(("task", task, task, "", 1.0))
             if project:
-                ents.add(("project", project, task, "projects/%s.md" % safe_name(project)))
+                ents.add(("project", project, task, "projects/%s.md" % safe_name(project), 1.0))
             for person in (people or "").split("\n"):
                 if person:
-                    ents.add(("person", person, task, "people/%s.md" % safe_name(person)))
-            for tid in self.cfg.ticket_ids(task, title):
-                ents.add(("ticket", tid, task, "tickets/%s.md" % safe_name(tid)))
+                    ents.add(("person", person, task, "people/%s.md" % safe_name(person), 1.0))
+            filed = [t for t in (tickets or "").split("\n") if t]
+            for tid in filed or self.cfg.ticket_ids(task, title):
+                ents.add(("ticket", tid, task, "tickets/%s.md" % safe_name(tid), 1.0 if filed else INFERRED_WEIGHT))
             conn.execute("INSERT INTO tasks_fts(task, title) VALUES(?,?)", (task, title or ""))
         for name in self.registry_names():
-            ents.add(("project", name, "", "projects/%s.md" % safe_name(name)))
+            ents.add(("project", name, "", "projects/%s.md" % safe_name(name), 1.0))
         for name in sorted(self.cfg.people or ()):
-            ents.add(("person", name, "", "people/%s.md" % safe_name(name)))
+            ents.add(("person", name, "", "people/%s.md" % safe_name(name), 1.0))
         for kind, name in conn.execute("SELECT DISTINCT kind, name FROM links").fetchall():
             folder = {v: k for k, v in NOTE_FOLDERS.items()}[kind]
-            ents.add((kind, name, "", "%s/%s.md" % (folder, safe_name(name))))
-        conn.executemany("INSERT INTO ents(kind,name,task,note) VALUES(?,?,?,?)", sorted(ents))
+            ents.add((kind, name, "", "%s/%s.md" % (folder, safe_name(name)), 1.0))
+        conn.executemany("INSERT INTO ents(kind,name,task,note,weight) VALUES(?,?,?,?,?)", sorted(ents))
 
     def meta(self, key):
         row = self.conn.execute("SELECT v FROM meta WHERE k=?", (key,)).fetchone()
@@ -1143,6 +1217,9 @@ class Recall:
         out = {}
         for kind, name in self.conn.execute("SELECT DISTINCT kind, name FROM ents"):
             out.setdefault(name.lower(), []).append((kind, name))
+        for alias, canon in self.cfg.aliases:
+            if ("person", canon) not in out.setdefault(alias.lower(), []):
+                out[alias.lower()].append(("person", canon))
         return out
 
     def resolve(self, words):
@@ -1206,10 +1283,10 @@ class Recall:
 
     def entity_rows(self, kind, name):
         rows = {}
-        for (rid,) in self.conn.execute(
-                "SELECT id FROM rows WHERE task IN (SELECT task FROM ents WHERE kind=? AND name=? AND task!='') "
-                "ORDER BY ts DESC LIMIT 1500", (kind, name)):
-            rows[rid] = 1.0
+        for rid, weight in self.conn.execute(
+                "SELECT r.id, max(e.weight) FROM rows r JOIN ents e ON e.task = r.task "
+                "WHERE e.kind=? AND e.name=? AND e.task!='' GROUP BY r.id ORDER BY r.ts DESC LIMIT 1500", (kind, name)):
+            rows[rid] = weight or 1.0
         for (rid,) in self.conn.execute("SELECT row FROM links WHERE kind=? AND name=? LIMIT 500", (kind, name)):
             rows[rid] = 1.0
         if kind != "task":
@@ -1288,7 +1365,8 @@ def recall_pack(rc, opts):
     entities, terms, notes = rc.resolve(opts.terms)
     for kind, flag in (("ticket", opts.ticket), ("project", opts.project), ("person", opts.person), ("task", opts.task)):
         for name in flag:
-            entities.append((kind, name.upper() if kind == "ticket" else name, "flag"))
+            name = name.upper() if kind == "ticket" else (rc.cfg.person(name) or name) if kind == "person" else name
+            entities.append((kind, name, "flag"))
     if terms:
         extra, terms = rc.fuzzy(terms)
         entities += extra
@@ -1473,11 +1551,35 @@ def cmd_recall(args):
     print(text)
     return 0
 
+def cmd_entities(args):
+    """Suggest configured ticket ids and registered people found verbatim in text; records nothing."""
+    config_dir, text = args
+    cfg = Config(config_dir)
+    tickets = [t for t in cfg.ticket_ids(text) if re.search(r"(?<!\w)%s(?!\w)" % re.escape(t), text, re.I)]
+    hits = []
+    for said, canon in [(n, n) for n in sorted(cfg.people or ())] + cfg.aliases:
+        m = re.search(r"(?<!\w)%s(?!\w)" % re.escape(said), text)
+        if m:
+            hits.append((m.start(), canon, said))
+    people = []
+    for _, canon, said in sorted(hits):
+        if canon not in [c for c, _ in people]:
+            people.append((canon, said))
+    print("tickets[%d]:%s" % (len(tickets), (" " + ",".join(toon_value(t) for t in tickets)) if tickets else ""))
+    print("people[%d]{name,said}:" % len(people))
+    for canon, said in people:
+        print("  %s,%s" % (toon_value(canon), toon_value(said)))
+    print("note: suggestions only, nothing was recorded; to track them, file the work with "
+          "bin/fm-tasks-axi.sh add <id> \"<title>\" --ticket <ID> --people \"<name>\"")
+    return 0
+
+
 def main(argv):
     if len(argv) >= 2 and argv[1] == "recall":
         return cmd_recall(argv[2:])
     cmds = {"sync": (cmd_sync, 8), "add": (cmd_add, 6), "ticket": (cmd_ticket, 4),
-            "learn": (cmd_learn, 3), "unresolved": (cmd_unresolved, 1), "index": (cmd_index, 7)}
+            "learn": (cmd_learn, 3), "unresolved": (cmd_unresolved, 1), "index": (cmd_index, 7),
+            "entities": (cmd_entities, 2)}
     if len(argv) < 2 or argv[1] not in cmds or len(argv) - 2 != cmds[argv[1]][1]:
         sys.stderr.write("fm_log.py: internal usage error; run bin/fm-log.sh\n")
         return 2
