@@ -1,0 +1,18 @@
+ok - flag on: dispatch, polled status lines, the local merge after its task's pending lines, and cleanup are recorded in order
+ok - a fresh spawn records the backlog item's ticket and people fields on its dispatch record
+ok - dispatched adds only non-empty string ticket and people members, and stays valid without them
+ok - flag on: a PR merge is recorded once, after the task's pending status lines
+ok - flag on: registering a PR records task.pr_ready with its full URL after the task's pending status lines, and the merge-time re-record adds nothing
+note: no local copy of 'sample' under /private/var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/fm-fleet-ledger.tKg5R2/on-immediate/home/projects, so this brief states no PR quality limits; pass --project-dir <path> if that project enforces any
+ok - flag on: a worker's status command records its line at once, and the watcher backstop does not record it again
+note: no local copy of 'sample' under /private/var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/fm-fleet-ledger.tKg5R2/on-state-override/home/projects, so this brief states no PR quality limits; pass --project-dir <path> if that project enforces any
+ok - flag on, state override outside the home: the worker's status command records its line at once
+note: no local copy of 'sample' under /private/var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/fm-fleet-ledger.tKg5R2/on-relative-config/home/projects, so this brief states no PR quality limits; pass --project-dir <path> if that project enforces any
+ok - flag on, relative config override: a worker running elsewhere still records its line at once
+note: no local copy of 'sample' under /private/var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/fm-fleet-ledger.tKg5R2/on-append-fails/home/projects, so this brief states no PR quality limits; pass --project-dir <path> if that project enforces any
+ok - append failing: the worker's status command exits nonzero and records nothing
+note: no local copy of 'sample' under /private/var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/fm-fleet-ledger.tKg5R2/on-failing/home/projects, so this brief states no PR quality limits; pass --project-dir <path> if that project enforces any
+ok - ledger failing: the worker's status line still lands exactly, quietly, and the backstop records it later
+note: no local copy of 'sample' under /private/var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/fm-fleet-ledger.tKg5R2/off-immediate/home/projects, so this brief states no PR quality limits; pass --project-dir <path> if that project enforces any
+ok - flag off: the worker's status command is a plain append and leaves no ledger file, offset, or lock
+ok - flag off: the whole lifecycle leaves no ledger file, offset, or lock
