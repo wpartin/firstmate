@@ -479,3 +479,26 @@ filed: 2026-09-25
   pass "a learning filed against a ticket, project, or task comes back for them and fans out to their notes"
 }
 test_learning_sources_come_back
+
+test_learning_links_follow_every_task_and_refiling() {
+  local home
+  home=$(make_home learning-refile)
+  fixture "$home"
+  printf 'Colour tokens live in the billing theme.\n' \
+    | run_log "$home" learn colour-tokens "Colour tokens" --task pick-colour --task eng-12-retry >/dev/null \
+    || fail "learn with two tasks failed"
+  run_log "$home" sync >/dev/null 2>&1 || fail "sync failed"
+  has "$(run_log "$home" recall --ticket ENG-12 --for brief)" "Colour tokens" "the second task's ticket brings the learning back"
+  has "$(run_log "$home" recall --project billing --for brief)" "Colour tokens" "the second task's project brings the learning back"
+  printf 'Settlement files arrive after midnight UTC.\n' \
+    | run_log "$home" learn settlement-timing "Settlement timing" --ticket eng-77 >/dev/null || fail "first filing failed"
+  run_log "$home" sync >/dev/null 2>&1 || fail "sync failed"
+  has "$(run_log "$home" recall --ticket ENG-77 --for brief)" "Settlement timing" "first filing recalls on its ticket"
+  printf 'Settlement files arrive after midnight UTC.\n' \
+    | run_log "$home" learn settlement-timing "Settlement timing" --ticket eng-78 >/dev/null || fail "re-filing failed"
+  run_log "$home" sync >/dev/null 2>&1 || fail "sync failed"
+  has "$(run_log "$home" recall --ticket ENG-78 --for brief)" "Settlement timing" "the corrected ticket recalls the learning"
+  lacks "$(run_log "$home" recall --ticket ENG-77 --for brief)" "Settlement timing" "the stale ticket no longer recalls it"
+  pass "a learning comes back for every task it names, and re-filing replaces stale sources"
+}
+test_learning_links_follow_every_task_and_refiling
