@@ -6,7 +6,9 @@
 #
 # `read` prints the one validated effective budget from
 # config/startup-memory-budget.  `report` prints the stable local estimate for
-# data/captain.md, data/captain-shared.md, and data/learnings.md together.
+# data/captain.md, data/captain-shared.md, and data/learnings.md together,
+# then one informational recent_threads line for the digest's RECENT THREADS
+# block, a bounded log projection that is never counted against the budget.
 # Bootstrap owns default materialization; this command never creates or repairs
 # configuration, so an absent, malformed, symlinked, hardlinked, or otherwise
 # unsafe value is a concrete error rather than an inferred default.
@@ -22,7 +24,7 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 . "$SCRIPT_DIR/fm-startup-memory-budget-lib.sh"
 
 usage() {
-  sed -n '2,11{s/^# \{0,1\}//;p;}' "$0"
+  sed -n '2,13{s/^# \{0,1\}//;p;}' "$0"
 }
 
 print_error() {
@@ -73,6 +75,7 @@ report() {
     && ! fm_startup_memory_decimal_le "$shared_tokens" "$budget"; then
     printf 'exception=primary-owned-shared-file-alone-exceeds-budget\n'
   fi
+  printf 'recent_threads=informational max_lines=10 max_bytes=1024 max_estimated_tokens=342 counted=no\n'
 }
 
 case "${1:-}" in

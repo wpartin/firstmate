@@ -57,7 +57,7 @@
 #                                  recreates it from the ledger, notes, and reports.
 #   fm-log.sh recall [<terms>...] [--ticket ID] [--project NAME] [--person NAME]
 #                    [--task ID] [--since YYYY-MM-DD|<N>d] [--limit N] [--json]
-#                    [--for brief|captain|board]
+#                    [--for brief|captain|board|threads]
 #   fm-log.sh recall --recent [--days N] [...]
 #                                  look things up in the log; see Recall below
 #
@@ -82,7 +82,11 @@
 #   the log root (scout reports cite data/<id>/report.md). --for captain keeps one
 #   cite per group; --for brief drops every path and private text (inbox notes,
 #   people notes) and never fails its caller: any error prints nothing and exits
-#   0. --for board is the default shape. --recent covers the last --days (7).
+#   0. --for threads (with --recent) is the session-start RECENT THREADS view:
+#   open captain decisions from before today, then the 5 most recently touched
+#   tickets and projects, within --limit lines and 900 bytes; like brief it never
+#   fails, and it prints nothing when the index is stale or empty.
+#   --for board is the default shape. --recent covers the last --days (7).
 #   recall reads the index without any lock and makes no network call. When the
 #   last index update failed (state/.log-index-stale) it still answers, with a
 #   `stale:` line. A missing index is reported with the command that builds it.

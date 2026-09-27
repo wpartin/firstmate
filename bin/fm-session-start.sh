@@ -53,7 +53,12 @@
 #                       step 1, harvested WITHOUT waiting for it.
 #      Then, locked and unless config/log says off, one bounded captain's
 #                       log start (fm-log.sh start: ledger and layout, then sync) (FM_LOG_STARTUP_SECONDS, default 5) that prints
-#                       only today's note path (docs/captains-log.md).
+#                       only today's note path (docs/captains-log.md), then a
+#                       RECENT THREADS block (fm-log.sh recall --recent --limit 8
+#                       --for threads): open captain decisions older than today
+#                       with their last touch and the 5 most recently touched
+#                       tickets and projects, at most 10 lines and 1 KB, and
+#                       nothing at all when the index is empty, stale, or unreadable.
 #   8. context digest - data/projects.md, data/secondmates.md, data/captain.md,
 #                       data/captain-shared.md, data/learnings.md: read-only,
 #                       always safe, always runs.
@@ -949,6 +954,13 @@ if [ "$READ_ONLY" -eq 0 ] && [ "$(head -n 1 "$CONFIG/log" 2>/dev/null | tr -d '[
     printf "\ncaptain's log: today's note is %s\n" "$LOG_NOTE"
   else
     printf "\ncaptain's log: not rendered this start; it catches up from the ledger at the next sync\n"
+  fi
+  # RECENT THREADS: a bounded projection of open decisions and recently touched tickets and projects.
+  RECENT_THREADS=$(fm_run_timed "${FM_LOG_STARTUP_SECONDS:-5}" env FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
+    FM_DATA_OVERRIDE="$DATA" FM_CONFIG_OVERRIDE="$CONFIG" "$SCRIPT_DIR/fm-log.sh" recall --recent --limit 8 --for threads 2>/dev/null \
+    | awk '{ n += length($0) + 1; if (NR > 9 || n > 960) exit; print }') || RECENT_THREADS=
+  if [ -n "$RECENT_THREADS" ]; then
+    printf '\nRECENT THREADS (from the log; fm-log.sh recall for more):\n%s\n' "$RECENT_THREADS"
   fi
 fi
 

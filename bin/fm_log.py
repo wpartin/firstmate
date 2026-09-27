@@ -1491,6 +1491,44 @@ def render_pack(opts, query, resolved, notes, stale, ents, rows, open_rows, open
     return found, "\n".join(body)
 
 
+THREADS_TOUCHED = 5
+THREADS_BYTES = 900
+
+
+def recent_threads(rc, opts):
+    """The session-start view: open captain decisions older than today, then the most recently touched tickets and projects."""
+    lines, decisions = [], []
+    for task, since_day in rc.conn.execute(
+            "SELECT task, since FROM open WHERE state='waiting on the captain' ORDER BY since DESC, task"):
+        held = rc.conn.execute("SELECT max(ts) FROM rows WHERE task=? AND kind='decision' AND answer=''", (task,)).fetchone()[0]
+        opened = day_of(held) if held else since_day
+        if opened and opened < rc.today:
+            decisions.append("  %s: waiting on the captain since %s, last touch %s" % (task, opened, since_day or opened))
+    cutoff = rc.now - opts.days * 86400
+    touched = {}
+    for sql in ("SELECT e.kind, e.name, max(r.ts) FROM ents e JOIN rows r ON r.task=e.task "
+                "WHERE e.kind IN ('ticket','project') AND e.task!='' GROUP BY e.kind, e.name",
+                "SELECT l.kind, l.name, max(r.ts) FROM links l JOIN rows r ON r.id=l.row "
+                "WHERE l.kind IN ('ticket','project') GROUP BY l.kind, l.name"):
+        for kind, name, ts in rc.conn.execute(sql):
+            key = (kind, name.lower())
+            if ts and ts >= cutoff and ts > touched.get(key, (0, ""))[0]:
+                touched[key] = (ts, "  %s %s, last touch %s" % (kind, name, day_of(ts)))
+    recent = [t[1] for t in sorted(touched.values(), key=lambda t: (-t[0], t[1]))[:THREADS_TOUCHED]]
+    room = opts.limit - (1 if decisions else 0) - (1 if recent else 0)
+    recent = recent[:max(0, room - min(len(decisions), room // 2))]
+    decisions = decisions[:max(0, room - len(recent))]
+    if decisions:
+        lines += ["open decisions:"] + decisions
+    if recent:
+        lines += ["recently touched:"] + recent
+    while lines and len("\n".join(lines).encode("utf-8")) > THREADS_BYTES:
+        lines.pop()
+    if lines and lines[-1].endswith(":"):
+        lines.pop()
+    return "\n".join(lines)
+
+
 def cmd_recall(args):
     import argparse
     parser = argparse.ArgumentParser(prog="fm-log.sh recall", add_help=False)
@@ -1507,8 +1545,9 @@ def cmd_recall(args):
     parser.add_argument("--days", type=int, default=7)
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--recent", action="store_true")
-    parser.add_argument("--for", dest="audience", choices=("brief", "captain", "board"))
-    brief = "--for=brief" in args or any(a == "--for" and b == "brief" for a, b in zip(args, args[1:]))
+    parser.add_argument("--for", dest="audience", choices=("brief", "captain", "board", "threads"))
+    brief = any(a in ("--for=brief", "--for=threads") for a in args) or any(
+        a == "--for" and b in ("brief", "threads") for a, b in zip(args, args[1:]))
     try:
         opts = parser.parse_args(args)
     except SystemExit:
@@ -1526,6 +1565,12 @@ def cmd_recall(args):
         if os.path.exists(opts.stale) and not stale:
             stale = datetime.datetime.fromtimestamp(os.path.getmtime(opts.stale)).strftime("%Y-%m-%d %H:%M")
         rc = Recall(conn, Config(opts.config), opts.today)
+        if opts.audience == "threads":
+            text = "" if stale or not opts.recent else recent_threads(rc, opts)
+            conn.close()
+            if text:
+                print(text)
+            return 0
         query = " ".join(opts.terms) or ("recent %dd" % opts.days if opts.recent else "")
         for kind in ("ticket", "project", "person", "task"):
             for name in getattr(opts, kind):

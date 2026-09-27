@@ -185,6 +185,8 @@ test_budget_accounting_reports_all_three_files_and_safe_failure() {
     "report did not account for absent learnings"
   assert_contains "$out" 'total_estimated_tokens=5' "report total was not the sum of all three files"
   assert_contains "$out" 'budget_status=within-budget' "report did not classify the initial total"
+  assert_contains "$out" 'recent_threads=informational max_lines=10 max_bytes=1024 max_estimated_tokens=342 counted=no' \
+    "report did not add the informational RECENT THREADS line"
 
   printf 'abcdefabcdefabcdefabcdef\n' > "$home/data/learnings.md"
   out=$(FM_HOME="$home" "$BUDGET" report)
