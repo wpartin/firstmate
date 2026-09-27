@@ -393,6 +393,19 @@ test_rows_carry_log_entity_chips() {
   pass "rows carry ticket, project, and people chips from the log with a last-touched hint"
 }
 
+test_merge_call_carries_its_task_chips() {
+  local home out payload
+  home=$(make_log_home merge-chips)
+  payload=$(printf '%s' "$PARITY_PAYLOAD" | jq -c '.captains_call += [{"key":"merge.fix-login","type":"merge","repo":"web",
+    "title":"Merge: fix login","detail":"validation green","task_id":"fix-login","pr_url":"https://github.com/acme/web/pull/7",
+    "checks":"green","risk":"low","options":[{"value":"merge","label":"Merge now"},{"value":"hold","label":"Not yet"}],"allow_freeform":true}]')
+  out=$(TZ=UTC render_static "$home" "$payload")
+  printf '%s' "$out" | jq -e '.error == "" and .calls[0].chips == []
+    and .calls[1].chips == ["ENG-12@https://tracker.example/ENG-12", "billing", "Dana Reyes", "last touched today"]' >/dev/null \
+    || fail "a merge card did not carry its task's log chips: $out"
+  pass "a merge Captain's Call card carries its task's ticket, project, and people chips"
+}
+
 test_rows_render_unchanged_without_the_export() {
   local home out
   home=$(make_home no-export)
@@ -426,6 +439,7 @@ test_live_build_records_the_board_url() {
 
 test_count_cards_filter_the_board
 test_rows_carry_log_entity_chips
+test_merge_call_carries_its_task_chips
 test_rows_render_unchanged_without_the_export
 test_stale_log_board_url_is_cleared
 test_live_build_records_the_board_url
