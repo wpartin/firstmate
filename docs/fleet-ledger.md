@@ -85,6 +85,7 @@ Records written before this marker existed carry neither, so a value of exactly 
 The full text stays at its source: the backlog task (hold reason and recorded answer), the task's status log, the inbox note or reply file, and the learning note.
 The [captain's log](captains-log.md) restores it from there automatically.
 
+## Limits
 
 - A worker using the current status command in its instructions records its line immediately after appending it, while the ledger is enabled.
   The supervision monitor's regular poll is the backstop: it records any line the immediate write missed, and does not record again a line that write already recorded.
