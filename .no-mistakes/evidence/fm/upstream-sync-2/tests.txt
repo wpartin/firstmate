@@ -1,0 +1,12 @@
+== tests/fm-shared-captain-inheritance.test.sh
+exit 0
+ok - fm-config-push source-only edit after inherit stays quiet
+ok - session-start digest renders data/captain-shared.md with the shared read-only label
+ok - the header check names the first required phrase it did not find, without widening the accept set
+# all fm-shared-captain-inheritance tests passed
+== tests/fm-remote-secondmate-lifecycle-e2e.test.sh
+exit 0
+ok - unreachable no-ledger remote state remains explicit with no local respawn or failover
+cannot retire terminal source; it remains registered: remote-reply-ios
+ok - remote retirement refuses child work, then removes only its own endpoint while a shared-session sibling survives
+ALL TESTS PASSED

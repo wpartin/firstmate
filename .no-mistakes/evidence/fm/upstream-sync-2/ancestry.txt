@@ -1,0 +1,31 @@
+## parents of HEAD
+07a733a38d9e454f88f8fae03196e03cc6582e44 fc948eed0ddbc452c741c341c712fd3717494cac 30ef650d7ee93cbaaf2ce63c6cac9b1a7890d81e Merge upstream kunchenguid/firstmate main at 30ef650
+## is 30ef650 (upstream main) ancestor?
+yes
+## is 5700baa ancestor?
+yes
+## is d3c9e3e (fork main) ancestor?
+yes
+## diff HEAD vs upstream 30ef650 (files)
+ tests/fm-turnend-guard.test.sh                     |  30 +
+ tests/fm-watcher-lock.test.sh                      |  50 ++
+ 73 files changed, 7014 insertions(+), 295 deletions(-)
+## diff base..HEAD stat
+ tests/fm-remote-secondmate-lifecycle-e2e.test.sh |  22 ++-
+ tests/fm-shared-captain-inheritance.test.sh      | 184 ++++++++++++++++++++++-
+ 5 files changed, 323 insertions(+), 23 deletions(-)
+## graph
+*   07a733a Merge upstream kunchenguid/firstmate main at 30ef650
+|\  
+| * 30ef650 fix(bin): stop reporting untouched shared-captain copies as drift (#4806)
+| * 62d643c test: stop the remote secondmate e2e watcher before temp-root cleanup (#5845)
+* | fc948ee Merge upstream kunchenguid/firstmate main at 5700baa (history link; content landed in #6)
+|\| 
+| * 5700baa fix: bound watcher cleanup wait on the downtime-marker lock (#5732)
+| * 503ba82 fix: bound ShellCheck to one canonical root per process (#5770)
+| * bb69be6 fix: require declared waits for workers awaiting their own work (#5812)
+| * 9d56cf6 fix: stop cancelled validation runs from reporting false failures (#5815)
+## fc948ee tree == d3c9e3e tree?
+yes
+## fork-side diff d3c9e3e..HEAD identical to upstream diff 5700baa..30ef650?
+identical
