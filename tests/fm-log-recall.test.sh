@@ -399,6 +399,24 @@ recently touched:
 
 test_exact_ticket_golden_pack
 test_recent_threads_view
+
+# A decision answered long ago then held again reports the current hold's date.
+test_recent_threads_reheld_decision() {
+  local home out
+  home=$(make_home threads-reheld)
+  ledger "$home" \
+    '{"v":1,"ts":'"$((T0 - 20 * DAY))"',"event":"captain.held","task":"pick-colour","reason":"red or blue","until":null}' \
+    '{"v":1,"ts":'"$((T0 - 20 * DAY + 60))"',"event":"captain.answered","task":"pick-colour","mode":"answered","source":null,"words":"red"}' \
+    '{"v":1,"ts":'"$T0"',"event":"captain.held","task":"pick-colour","reason":"blue or green","until":null}'
+  run_log "$home" sync >/dev/null 2>&1 || fail "reheld sync failed"
+  out=$(run_log "$home" recall --recent --for threads)
+  has "$out" "pick-colour: waiting on the captain since 2026-09-24" "re-held decision date"
+  lacks "$out" "since 2026-09-04" "re-held decision date"
+  out=$(TODAY=2026-09-24 run_log "$home" recall --recent --for threads)
+  lacks "$out" "open decisions" "a decision re-held today"
+  pass "a re-held decision is dated from its current open hold"
+}
+test_recent_threads_reheld_decision
 test_plain_person_name_resolves
 test_aliases_and_structured_tickets_resolve
 test_filed_person_matches_registered_name_case_insensitively
