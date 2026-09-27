@@ -528,10 +528,10 @@ MODEL=$(printf '%s' "$SNAP" | jq \
                   | (if (($name | type) == "string" and ($name | test("[^[:space:]]")))
                      then $name else ($m.id + "/" + .id) end) | trunc(70)),
             doing:((.doing // .state) | trunc(90)),
-            name_full:((.name // "") as $name
+            name_full:((.name_full // .name // "") as $name
                        | if (($name | type) == "string" and ($name | test("[^[:space:]]")))
                          then $name else ($m.id + "/" + .id) end),
-            doing_full:((.doing // .state) | tostring)} ]) as $in_flight_all
+            doing_full:((.doing_full // .doing // .state) | tostring)} ]) as $in_flight_all
   | ([ .backlog.records[]
          | . as $record
          | select(.structured and .hold_bucket != null)
