@@ -1,0 +1,7 @@
+RECENT THREADS (from the log; fm-log.sh recall for more):
+recently touched:
+  project proj12, last touch 2026-09-27
+  project proj11, last touch 2026-09-27
+  project proj10, last touch 2026-09-27
+  project proj9, last touch 2026-09-27
+  project proj8, last touch 2026-09-27
