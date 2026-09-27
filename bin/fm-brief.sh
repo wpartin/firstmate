@@ -568,8 +568,12 @@ relevant_history() {
     [ -n "$value" ] && flags+=("${value%%$'\t'*}" "${value#*$'\t'}")
   done < <(printf '%s' "$ents" | jq -r '(.tickets // [])[] | "--ticket\t" + .' 2>/dev/null
            printf '%s' "$ents" | jq -r '(.people // [])[] | "--person\t" + .' 2>/dev/null)
-  pack=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" FM_DATA_OVERRIDE="$DATA" \
-    "$SCRIPT_DIR/fm-log.sh" recall --for brief --limit 12 "${flags[@]}" 2>/dev/null) || return 0
+  history_recall() { FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" FM_DATA_OVERRIDE="$DATA" \
+    "$SCRIPT_DIR/fm-log.sh" recall --for brief --limit 12 "${flags[@]}" "$@" 2>/dev/null; }
+  # The task's own open row is not history, so it alone never earns a section.
+  history_recall --json | jq -e --arg id "$ID" '([.timeline, .decisions, .learnings] | any(length > 0))
+    or any(.open[]?; .task != $id) or any(.entities[]?; .touches > 0)' >/dev/null 2>&1 || return 0
+  pack=$(history_recall) || return 0
   pack=$(printf '%s\n' "$pack" | grep -v '^query: ' | head -n 11)
   [ -n "$pack" ] || return 0
   printf '\n\n## Relevant history\n%s\n%s\n%s\n%s' \

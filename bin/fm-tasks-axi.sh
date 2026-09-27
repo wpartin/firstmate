@@ -196,7 +196,7 @@ related_recall() {
   if [ -n "$TITLE" ]; then
     read -ra words <<< "$TITLE"
     resolved=$("$log" recall "${words[@]}" --for brief --json 2>/dev/null \
-      | jq -r '.resolved[]? | select(.kind != "task") | .kind + "\t" + .name' 2>/dev/null) || resolved=
+      | jq -r '.resolved[]? | select(.kind != "task" and (.via == "exact" or .via == "pattern")) | .kind + "\t" + .name' 2>/dev/null) || resolved=
     while IFS= read -r line; do
       [ -n "$line" ] || continue
       kind=${line%%$'\t'*}; name=${line#*$'\t'}

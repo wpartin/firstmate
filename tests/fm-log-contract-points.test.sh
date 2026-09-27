@@ -79,6 +79,29 @@ test_empty_history_and_log_off_add_nothing() {
   pass "empty history or an off log leaves the brief unchanged"
 }
 
+test_own_open_row_alone_adds_nothing() {
+  local home out
+  home=$(make_home own-open)
+  jq '.queue += [{"id":"lone-task","title":"Lone task","repo":"web","state":"queued","blocked_by":["eng-12-retry"]}]' \
+    "$home/snapshot.json" > "$home/snapshot.tmp" && mv "$home/snapshot.tmp" "$home/snapshot.json"
+  in_home "$home" "$ROOT/bin/fm-log.sh" sync >/dev/null 2>&1 || fail "sync failed"
+  out=$(in_home "$home" "$ROOT/bin/fm-log.sh" recall --task lone-task --json 2>&1)
+  assert_contains "$out" "\"task\": \"lone-task\"" "the index lists the task as open"
+  out=$(brief_for "$home" lone-task web)
+  assert_not_contains "$out" "Relevant history" "only the task's own open row"
+  pass "a task whose only recall row is its own open item gets no Relevant history"
+}
+
+test_add_ignores_similarity_only_names() {
+  local home out
+  home=$(make_home similar)
+  out=$(in_home "$home" "$ROOT/bin/fm-log.sh" recall Reyez --json 2>&1)
+  assert_contains "$out" '"name": "Dana Reyes"' "recall resolves the near-miss by similarity"
+  out=$(in_home "$home" "$ROOT/bin/fm-tasks-axi.sh" add near-miss "Pair with Reyez" 2>&1) || fail "add failed: $out"
+  assert_not_contains "$out" "RELATED:" "a near-miss spelling"
+  pass "add stays silent when a title only resembles an entity name"
+}
+
 test_add_prints_related_only_when_entities_resolve() {
   local home out
   home=$(make_home related)
@@ -99,4 +122,6 @@ test_add_prints_related_only_when_entities_resolve() {
 
 test_brief_carries_path_free_history
 test_empty_history_and_log_off_add_nothing
+test_own_open_row_alone_adds_nothing
+test_add_ignores_similarity_only_names
 test_add_prints_related_only_when_entities_resolve
