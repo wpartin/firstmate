@@ -223,6 +223,21 @@ EOF
   pass "a truncated firstmate line is restored once in place; hand, manual, off-cap, ambiguous, and non-prefix lines stay"
 }
 
+test_repair_waits_for_a_fleet_snapshot() {
+  local home long note
+  home=$(make_home repair-nosnap)
+  long="Relink fork history to upstream after the squashed sync, and merge upstream main again so every later sync stays a plain fast-forward"
+  note=$(day_note "$home" 2026-09-24)
+  mkdir -p "$(dirname "$note")"
+  printf -- '## Worked through\n\n- 09:00 In flight: %s… %%%% fm:aaaaaaaaaaaa %%%%\n' "${long:0:89}" > "$note"
+  run_log "$home" sync >/dev/null 2>&1 || fail "sync without a snapshot failed"
+  has "$(cat "$note")" "In flight: ${long:0:89}… %% fm:aaaaaaaaaaaa %%" "no snapshot leaves the line for a later repair"
+  jq -n --arg t "$long" '{queue:[{id:"relink",title:$t,repo:"web",state:"in_flight",blocked_by:[],tickets:[],people:[]}],in_flight:[]}' > "$home/snapshot.json"
+  run_log "$home" sync >/dev/null 2>&1 || fail "sync with a snapshot failed"
+  has "$(cat "$note")" "- 09:00 In flight: $long %% fm:aaaaaaaaaaaa %%" "the first sync with a snapshot repairs the line"
+  pass "the one-time repair waits for a sync that has a fleet snapshot"
+}
+
 test_queue_view_renders_from_the_snapshot() {
   local home
   home=$(make_home queue)
@@ -480,6 +495,7 @@ test_events_render_golden_day_note_and_replay_is_a_noop
 test_queue_view_renders_from_the_snapshot
 test_long_text_renders_whole_everywhere
 test_truncated_lines_are_repaired_in_place
+test_repair_waits_for_a_fleet_snapshot
 test_log_never_reads_the_backlog_file
 test_structured_fields_fill_every_note_the_same_way
 test_entities_suggests_and_records_nothing
