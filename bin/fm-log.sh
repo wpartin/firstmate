@@ -9,6 +9,7 @@
 # (state/fleet-ledger.jsonl, docs/fleet-ledger.md) and one bearings snapshot
 # (bin/fm-bearings-snapshot.sh --json --all-decisions --fields queue); no other
 # script writes it and nothing depends on firstmate remembering to update it.
+# It records text whole: nothing it renders or indexes is truncated.
 #
 # Location (config/log, one line, per home, not inherited):
 #   absent, empty, or on   <home>/data/log (the default)

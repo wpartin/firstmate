@@ -156,6 +156,65 @@ people[2]{name,said}:
   pass "entities suggests configured ticket ids and verbatim names or aliases and writes nothing"
 }
 
+test_long_text_renders_whole_everywhere() {
+  local home long reason note queue project
+  home=$(make_home longtext)
+  long="Relink fork history to upstream after the squashed sync, and merge upstream main again$(printf ' so every later sync stays a plain fast-forward%.0s' 1 2 3 4 5 6) - end of title"
+  reason="Keep the fork or rebase it$(printf ' and weigh what each choice costs the next sync%.0s' 1 2 3 4 5 6) - end of reason"
+  [ "${#long}" -gt 300 ] || fail "fixture title must exceed 300 characters"
+  jq -n --arg t "$long" --arg r "$reason" '{queue:[
+      {id:"relink",title:$t,repo:"web",state:"in_flight",blocked_by:[],tickets:[],people:[]},
+      {id:"choose",title:$t,repo:"web",state:"queued",hold_bucket:"live",hold_kind:"captain",hold_reason:$r,blocked_by:[]}],
+    in_flight:[{id:"relink",kind:"ship",state:"working",repo:"web",name:($t[:70] + "…"),doing:"short…",
+      name_full:$t,doing_full:("writing" + $r)}]}' > "$home/snapshot.json"
+  ledger "$home" \
+    '{"v":1,"ts":'"$T0"',"event":"task.dispatched","task":"relink","kind":"ship","project":"web","harness":"claude","model":null}' \
+    "$(jq -nc --arg r "$reason" --argjson ts "$((T0 + 60))" '{v:1,ts:$ts,event:"captain.held",task:"choose",reason:$r,until:null}')"
+  run_log "$home" sync >/dev/null 2>&1 || fail "sync failed"
+  note=$(cat "$(day_note "$home" 2026-09-24)")
+  queue=$(cat "$home/data/log/queue.md")
+  project=$(cat "$home/data/log/projects/web.md")
+  has "$note" "Started $long in [[web]]"
+  has "$note" "- $long: $reason %% fm:hold:choose %%"
+  has "$note" "- In flight: $long"
+  has "$queue" "- $long
+  writing$reason"
+  has "$queue" "  $reason"
+  has "$project" "Started: $long"
+  has "$project" "Asked: $long - $reason"
+  lacks "$note$queue$project" "…"
+  has "$(run_log "$home" recall --task choose 2>&1)" "$reason" "recall keeps the full hold reason"
+  pass "a title over 300 characters renders whole in the day note, queue, and project note"
+}
+
+test_truncated_lines_are_repaired_in_place() {
+  local home long note before after n
+  home=$(make_home repair)
+  long="Relink fork history to upstream after the squashed sync, and merge upstream main again so every later sync stays a plain fast-forward"
+  jq -n --arg t "$long" '{queue:[{id:"relink",title:$t,repo:"web",state:"in_flight",blocked_by:[],tickets:[],people:[]}],in_flight:[]}' > "$home/snapshot.json"
+  note=$(day_note "$home" 2026-09-24)
+  mkdir -p "$(dirname "$note")"
+  cat > "$note" <<EOF
+## Worked through
+
+- 09:00 Started ${long:0:89}… in [[web]] %% fm:aaaaaaaaaaaa %%
+- 09:01 Finished: ${long:0:60}… - not a prefix of anything recorded… %% fm:bbbbbbbbbbbb %%
+- 09:02 Hand note: ${long:0:89}…
+- 09:03 Edited by hand: Relink fork history everywhere… %% fm:cccccccccccc %%
+- 09:04 Kept: ${long:0:40}… %% fm:manual:dddddddddddd %%
+EOF
+  before=$(cat "$note")
+  run_log "$home" sync >/dev/null 2>&1 || fail "sync failed"
+  after=$(cat "$note")
+  has "$after" "- 09:00 Started $long in [[web]] %% fm:aaaaaaaaaaaa %%"
+  has "$after" "- 09:01 Finished: $long - not a prefix of anything recorded… %% fm:bbbbbbbbbbbb %%"
+  for n in 2 3 4; do
+    has "$after" "$(printf '%s\n' "$before" | grep -F -- "- 09:0$n ")" "untouched line 09:0$n"
+  done
+  assert_equals "$(printf '%s\n' "$before" | grep -o 'fm:[a-z:]*')" "$(printf '%s\n' "$after" | grep -o 'fm:[a-z:]*' | head -4)" "anchors keep their order"
+  pass "a truncated firstmate line is restored in place; hand, manual, and non-prefix lines stay"
+}
+
 test_queue_view_renders_from_the_snapshot() {
   local home
   home=$(make_home queue)
@@ -411,6 +470,8 @@ test_wait_bounds_a_non_quiet_sync() {
 
 test_events_render_golden_day_note_and_replay_is_a_noop
 test_queue_view_renders_from_the_snapshot
+test_long_text_renders_whole_everywhere
+test_truncated_lines_are_repaired_in_place
 test_log_never_reads_the_backlog_file
 test_structured_fields_fill_every_note_the_same_way
 test_entities_suggests_and_records_nothing

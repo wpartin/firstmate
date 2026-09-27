@@ -1077,6 +1077,27 @@ test_default_is_bounded_and_local_only() {
   pass "default output is bounded, local-only, and marks omitted surfaces"
 }
 
+test_in_flight_display_stays_bounded_and_queue_adds_full_text() {
+  local home fakebin backlog long json queue
+  home=$(make_home fulltext); write_fixture "$home"
+  backlog="$home/data/backlog.md"
+  long="Relink fork history to upstream after the squashed sync, and merge upstream main again so every later sync stays a plain fast-forward"
+  awk -v t="$long" '{if ($0 ~ /^- \[ \] ship-task /) sub(/Ship the thing/, t); print}' "$backlog" > "$backlog.tmp" && mv "$backlog.tmp" "$backlog"
+  fakebin=$(make_fakebin "$home")
+  json=$(run "$home" "$fakebin" --json)
+  printf '%s' "$json" | jq -e --arg t "$long" '
+    .in_flight | map(select(.id == "ship-task")) | .[0]
+    | .name as $n | ($n | length) == 71 and ($n | endswith("…")) and ($t | startswith($n[:70]))
+      and has("name_full") == false and has("doing_full") == false
+  ' >/dev/null || fail "default Underway name must keep its 70-character bound and no full-text members: $json"
+  queue=$(run "$home" "$fakebin" --json --fields queue)
+  printf '%s' "$queue" | jq -e --arg t "$long" '
+    .in_flight | map(select(.id == "ship-task")) | .[0]
+    | (.name | length) == 71 and .name_full == $t and (.doing_full | type) == "string"
+  ' >/dev/null || fail "--fields queue must add the untruncated in-flight name beside the bounded one: $queue"
+  pass "Underway display bounds are unchanged and the queue field adds full in-flight text"
+}
+
 test_toon_json_parity() {
   local home fakebin toon json keys k
   home=$(make_home parity); write_fixture "$home"
@@ -3374,6 +3395,7 @@ test_nonprogressing_child_states_are_explicit
 test_registry_unavailability_and_bounds_are_explicit
 test_current_landed_baseline_is_repeatable_and_prior_report_independent
 test_default_is_bounded_and_local_only
+test_in_flight_display_stays_bounded_and_queue_adds_full_text
 test_toon_json_parity
 test_landed_includes_secondmate_home_merges
 test_landed_accepts_only_kind_owned_delivery_artifacts
