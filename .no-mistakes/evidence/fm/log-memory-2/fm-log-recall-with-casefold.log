@@ -1,0 +1,14 @@
+ok - an exact ticket id resolves to a golden, dated, cited pack
+ok - a person's plain name in a question becomes an entity filter
+ok - aliases resolve to their person, filed tickets resolve without the title, and title matches rank lower
+ok - a filed person in a different case lands on the registered name's note and recall
+ok - free terms match by stem and prefix, and a misspelled name resolves by trigrams
+ok - --since drops older rows by date or by days
+ok - the pack is bounded, newest first, with a more: count
+ok - an index kept by sync equals one rebuilt from scratch
+ok - config/log-redact applies before indexing
+ok - --for brief drops paths and private text and never fails its caller
+ok - --for captain keeps one cite per group
+ok - a failed index update leaves a marker that recall reports
+ok - recall and index exit 3 silently when the log is off
+ok - a 50k-record ledger answers an exact ticket in 66 ms
