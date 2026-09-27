@@ -78,7 +78,7 @@ A task filed without the fields keeps the older behavior: tickets come from its 
   Without that file only `ticket:` fields are treated as tickets.
 - **Projects** get a note the first time work in them is logged.
 - **People** are linked only from a task's `people:` field; names are never taken from prose.
-  An optional `config/log-people` lists who may be linked, one person per line as `Name` or `Name<TAB>alias, alias`; a listed alias resolves to its name in notes and recall.
+  An optional `config/log-people` lists who may be linked, one person per line as `Name` or `Name<TAB>alias, alias`; a listed name or alias, in any letter case, resolves to its listed spelling in notes and recall.
 - **Learnings** are written with `bin/fm-log.sh learn <slug> <title>` (body on stdin), which also links them from the day note.
 
 At intake, `bin/fm-log.sh entities "<the captain's words>"` suggests configured ticket ids and listed names or aliases that appear verbatim in the words.

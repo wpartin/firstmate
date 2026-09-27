@@ -141,6 +141,25 @@ EOF
   pass "aliases resolve to their person, filed tickets resolve without the title, and title matches rank lower"
 }
 
+test_filed_person_matches_registered_name_case_insensitively() {
+  local home out
+  home=$(make_home casefold)
+  printf 'Dana Reyes\tDR\n' > "$home/config/log-people"
+  cat > "$home/snapshot.json" <<'EOF2'
+{"queue":[
+  {"id":"docs-a","title":"document billing","repo":"billing","state":"done","blocked_by":[],"tickets":[],"people":[]}
+ ]}
+EOF2
+  ledger "$home" \
+    '{"v":1,"ts":'"$((T0 + 400))"',"event":"task.dispatched","task":"docs-a","kind":"ship","project":"billing","harness":"claude","model":null,"tickets":[],"people":["dana reyes"]}'
+  run_log "$home" sync >/dev/null 2>&1 || fail "sync failed"
+  [ -f "$home/data/log/people/Dana Reyes.md" ] || fail "no canonical person note: $(ls -R "$home/data/log")"
+  out=$(run_log "$home" recall --person "Dana Reyes") || fail "person recall failed: $out"
+  has "$out" "resolved: person Dana Reyes"
+  has "$out" ",docs-a,"
+  pass "a filed person in a different case lands on the registered name's note and recall"
+}
+
 test_fuzzy_terms_and_misspelled_names() {
   local home out
   home=$(make_home fuzzy)
@@ -356,6 +375,7 @@ EOF
 test_exact_ticket_golden_pack
 test_plain_person_name_resolves
 test_aliases_and_structured_tickets_resolve
+test_filed_person_matches_registered_name_case_insensitively
 test_fuzzy_terms_and_misspelled_names
 test_since_filters_older_rows
 test_bound_and_more_count
