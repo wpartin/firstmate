@@ -1,0 +1,77 @@
++(eval):9> bash bin/fm-log.sh enable
+$FM_HOME/data/log
++(eval):9> bash bin/fm-log.sh import-legacy
+imported 5 legacy learnings
++(eval):9> bash bin/fm-log.sh import-legacy
++(eval):9> bash bin/fm-log.sh path
++(eval):9> ls -G $FM_HOME/data/log/learnings
+legacy-180ce337a01c.md
+legacy-209421baf71e.md
+legacy-85396b85cd54.md
+legacy-8a24f30004e7.md
+legacy-9761b52ed306.md
++(eval):9> bash bin/fm-log.sh path
++(eval):9> head -8 $FM_HOME/data/log/learnings/legacy-180ce337a01c.md $FM_HOME/data/log/learnings/legacy-209421baf71e.md $FM_HOME/data/log/learnings/legacy-85396b85cd54.md $FM_HOME/data/log/learnings/legacy-8a24f30004e7.md $FM_HOME/data/log/learnings/legacy-9761b52ed306.md
+==> $FM_HOME/data/log/learnings/legacy-180ce337a01c.md <==
+---
+filed: 2026-09-28
+status: archived
+reinforced: 2026-09-28
+---
+# Archived lesson from memory.
+
+Archived lesson from memory.
+
+==> $FM_HOME/data/log/learnings/legacy-209421baf71e.md <==
+---
+filed: 2026-09-01
+status: in-force
+tier: perishable
+reinforced: 2026-09-01
+---
+# Quota resets weekly on Mondays.
+
+
+==> $FM_HOME/data/log/learnings/legacy-85396b85cd54.md <==
+---
+filed: 2026-09-28
+status: in-force
+reinforced: 2026-09-28
+---
+# Prefer rg over grep.
+
+Prefer rg over grep.
+
+==> $FM_HOME/data/log/learnings/legacy-8a24f30004e7.md <==
+---
+filed: 2026-09-28
+status: aging
+reinforced: 2026-09-28
+---
+# Old guidance that should age.
+
+Old guidance that should age.
+
+==> $FM_HOME/data/log/learnings/legacy-9761b52ed306.md <==
+---
+filed: 2026-09-28
+status: in-force
+tier: pinned
+reinforced: 2026-09-28
+---
+# Never restart the shared daemon while runs are active.
+
++(eval):9> bash bin/fm-log.sh stale
+legacy-209421baf71e in-force perishable 2026-09-01
++(eval):9> bash bin/fm-log.sh learnings
+- Never restart the shared daemon while runs are active. [learnings/legacy-9761b52ed306.md, reinforced 2026-09-28]
+- Prefer rg over grep. [learnings/legacy-85396b85cd54.md, reinforced 2026-09-28]
+- Quota resets weekly on Mondays. [learnings/legacy-209421baf71e.md, reinforced 2026-09-01]
++(eval):9> bash bin/fm-log.sh learnings --status in-force,aging,archived
+- Never restart the shared daemon while runs are active. [learnings/legacy-9761b52ed306.md, reinforced 2026-09-28]
+- Old guidance that should age. [learnings/legacy-8a24f30004e7.md, reinforced 2026-09-28]
+- Prefer rg over grep. [learnings/legacy-85396b85cd54.md, reinforced 2026-09-28]
+- Archived lesson from memory. [learnings/legacy-180ce337a01c.md, reinforced 2026-09-28]
+- Quota resets weekly on Mondays. [learnings/legacy-209421baf71e.md, reinforced 2026-09-01]
++(eval):9> bash bin/fm-log.sh learnings --max-bytes 10
+more: 3 learnings not shown (fm-log.sh recall to find them)
