@@ -628,7 +628,7 @@ Shared captain preferences that apply across secondmate domains live only in the
 Fleet-local operational facts and gotchas live in one store: the captain's log learning notes, `learnings/<slug>.md` under the log root ([`captains-log.md`](captains-log.md)), filed only with `bin/fm-log.sh learn`.
 Each note carries a `status` of `in-force`, `aging`, or `archived` and a `reinforced` date; the internal [`stow` skill](../.agents/skills/stow/SKILL.md) owns how a pass changes them, and nothing is deleted.
 The session-start context digest prints only a bounded view of the notes in force, and recall reaches the rest.
-With the log off this home has no learnings store, and `/stow` reports that rather than writing elsewhere.
+With the log off this home has no learnings store: the session-start digest prints any existing `data/learnings.md` read-only, labelled legacy, and `/stow` reports that filing learnings needs the log on rather than writing elsewhere.
 
 `data/learnings.md` and `data/memory-archive.md` are legacy files: the locked session start imports their entries once into learning notes (archive entries arrive archived) and leaves both files untouched as backups.
 
