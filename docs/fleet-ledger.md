@@ -52,13 +52,15 @@ It is written each time firstmate records a PR for the task, so registering a re
 
 `task.status` members: `state` is the status line's leading word, such as `working`, `needs-decision`, `blocked`, `paused`, `done`, `failed`, or `resolved`, or `null` when the line has none.
 `key` is the line's `[key=...]` decision key, or `null`.
-`text` is the status line after its first colon, verbatim, capped at 2000 characters; if the line has no colon, it is the whole line.
+`text` is the status line after its first colon, verbatim and in full; if the line has no colon, it is the whole line.
 
-`captain.held` members: `reason` is the hold reason, capped at 2000 characters; `until` is the `YYYY-MM-DD` deferral date or `null`.
+`captain.held` members: `reason` is the hold reason in full; `until` is the `YYYY-MM-DD` deferral date or `null`.
 
-`captain.answered` members: `mode` is `answered`, `released`, `repaired`, or `reconciled`; `source` is the answering channel's provenance text, or `null` for a direct answer; `words` is the captain's answer (for a `reconciled` record, the reconciliation evidence), capped at 2000 characters.
+`captain.answered` members: `mode` is `answered`, `released`, `repaired`, or `reconciled`; `source` is the answering channel's provenance text, or `null` for a direct answer; `words` is the captain's answer (for a `reconciled` record, the reconciliation evidence), in full.
 
-`inbox.noted` members: `note` is the note id; `log_day`, `thread` are the note body's `log_day=` and `thread=` lines, or `null`; `text` is the note body, capped at 2000 characters.
+`inbox.noted` members: `note` is the note id; `log_day`, `thread` are the note body's `log_day=` and `thread=` lines, or `null`; `text` is the note body in full.
+
+No text member is shortened: every status line, hold reason, answer, note, reply, learning title, and ticket or person name is recorded whole.
 
 Example:
 

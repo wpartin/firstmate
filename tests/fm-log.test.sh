@@ -491,6 +491,58 @@ test_wait_bounds_a_non_quiet_sync() {
   pass "--wait bounds a non-quiet sync's wait for a held lock"
 }
 
+long_text() {  # <word> <length>: <word> repeated to exactly <length> characters, ending in END<word>
+  python3 -c 'import sys; w, n = sys.argv[1], int(sys.argv[2]); e = " END" + w; b = (w + " ") * n; print(b[:n - len(e)] + e, end="")' "$1" "$2"
+}
+
+in_home() {  # <home> <command...>
+  local home=$1
+  shift
+  FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" FM_CONFIG_OVERRIDE="$home/config" "$@"
+}
+
+test_long_ledger_text_is_recorded_and_rendered_whole() {
+  command -v tasks-axi >/dev/null 2>&1 || { pass "skip: tasks-axi not found"; return; }
+  local home note rec hold answer status noted reply title out id w
+  home=$(make_home long-ledger)
+  snapshot "$home"
+  cp "$ROOT/.tasks.toml" "$home/.tasks.toml"
+  printf '## In flight\n\n## Queued\n\n## Done\n' > "$home/data/backlog.md"
+  hold=$(long_text holdword 5000); answer=$(long_text answerword 5000); status=$(long_text statusword 5000)
+  noted=$(long_text noteword 5000); reply=$(long_text replyword 5000); title=$(long_text titleword 5000)
+  in_home "$home" "$ROOT/bin/fm-tasks-axi.sh" add long-call "Long call" >/dev/null || fail "add failed"
+  in_home "$home" "$ROOT/bin/fm-captain-hold.sh" hold long-call --reason "$hold" >/dev/null 2>&1 || fail "hold failed"
+  printf '%s\n' "$answer" > "$home/answer.txt"
+  in_home "$home" "$ROOT/bin/fm-captain-hold.sh" answer long-call --decision-file "$home/answer.txt" >/dev/null 2>&1 \
+    || fail "answer failed"
+  printf 'done [at=1]: %s\n' "$status" > "$home/state/long-work.status"
+  in_home "$home" "$ROOT/bin/fm-fleet-ledger.sh" capture || fail "capture failed"
+  id=$(in_home "$home" "$ROOT/bin/fm-inbox.sh" note --json -- "$(printf 'log_day=2026-09-24\n%s' "$noted")" \
+    | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])') || fail "note failed"
+  in_home "$home" "$ROOT/bin/fm-inbox.sh" reply "$id" "$reply" >/dev/null 2>&1 || fail "reply failed"
+  printf 'Body.\n' | run_log "$home" learn long-title "$title" >/dev/null || fail "learn failed"
+  rm -f "$home/state/long-work.status" "$home/data/backlog.md"
+  rm -rf "$home/state/inbox"
+
+  rec=$(cat "$home/state/fleet-ledger.jsonl")
+  for w in "$hold" "$answer" "$status" "$noted" "$reply" "$title"; do has "$rec" "$w" "the ledger, full text"; done
+  run_log "$home" sync >/dev/null 2>&1 || fail "sync failed"
+  note=$(cat "$(day_note "$home" "$(date -u +%Y-%m-%d)")" "$(day_note "$home" 2026-09-24)" 2>/dev/null)
+  for w in "$hold" "$answer" "$status" "$noted" "$reply" "$title"; do has "$note" "$w" "the day note, full text"; done
+  out=$(run_log "$home" recall --task long-call --json --limit 200) || fail "recall failed: $out"
+  has "$out" "$hold" "recall"; has "$out" "$answer" "recall"
+  out=$(run_log "$home" recall --task long-work --json --limit 200) || fail "recall failed: $out"
+  has "$out" "$status" "recall"
+  out=$(run_log "$home" recall titleword --json --limit 200) || fail "recall failed: $out"
+  has "$out" "$title" "recall"
+  python3 - "$home/state/.log-index.db" "$noted" "$reply" <<'PY' || fail "the recall index lacks a note or reply in full"
+import sqlite3, sys
+body = " ".join(r[0] for r in sqlite3.connect(sys.argv[1]).execute("SELECT what FROM rows"))
+assert sys.argv[2] in body and sys.argv[3] in body
+PY
+  pass "5000-character answers, holds, notes, replies, status lines, and learning titles reach the ledger, day note, and recall whole"
+}
+
 test_events_render_golden_day_note_and_replay_is_a_noop
 test_queue_view_renders_from_the_snapshot
 test_long_text_renders_whole_everywhere
@@ -508,3 +560,4 @@ test_off_unreachable_and_foreign_owner_refuse
 test_enable_turns_on_the_ledger_and_lays_out_the_log
 test_start_defaults_on_and_honors_off_and_a_folder
 test_wait_bounds_a_non_quiet_sync
+test_long_ledger_text_is_recorded_and_rendered_whole
