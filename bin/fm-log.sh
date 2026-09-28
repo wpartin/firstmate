@@ -123,7 +123,8 @@
 #   from the ledger instead), learning notes (linked to their sources), the first paragraph of each
 #   data/<id>/report.md, and the entity registry, re-reading a file only when its
 #   mtime or size changes. config/log-redact applies before anything is indexed,
-#   and a change to log-tickets, log-people, or log-redact rebuilds it. A failed
+#   and a change to log-tickets, log-people, or log-redact rebuilds it. A project is
+#   its basename, and a snapshot's repo never replaces one the ledger named. A failed
 #   update during sync touches state/.log-index-stale; a good one removes it.
 #
 # Safety:

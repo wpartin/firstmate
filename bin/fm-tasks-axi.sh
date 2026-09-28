@@ -22,8 +22,9 @@
 # docs/captains-log.md owns what they mean for the log. A value that is empty or
 # carries a comma or newline is refused, since either would split the field.
 # After a successful add (not --json), a `RELATED:` recall pack follows when a
-# --ticket or --people value or a ticket, person, or project named in the title
-# has history in the captain's log; nothing prints otherwise or when it is off.
+# --ticket or --people value or a ticket or person named in the title has history
+# in the captain's log; a project alone never qualifies, and nothing prints
+# otherwise or when it is off.
 #
 # Why it exists: a bare `tasks-axi` resolves the tracked `.tasks.toml` paths
 # against its working directory, so from the code root it forks the queue
@@ -186,7 +187,7 @@ if [ "$is_add" = 1 ]; then
 fi
 
 # RELATED: after a successful add, recall the item's tickets, people, and the
-# entities its title names (docs/captains-log.md "Recall"); silent when nothing
+# tickets and people its title names (docs/captains-log.md "Recall"); silent when nothing
 # resolves, the log is off, or recall fails, and never changes the exit status.
 related_recall() {
   local log="$SCRIPT_DIR/fm-log.sh" flags=() resolved line kind name pack
@@ -196,7 +197,7 @@ related_recall() {
   if [ -n "$TITLE" ]; then
     read -ra words <<< "$TITLE"
     resolved=$("$log" recall "${words[@]}" --for brief --json 2>/dev/null \
-      | jq -r '.resolved[]? | select(.kind != "task" and (.via == "exact" or .via == "pattern")) | .kind + "\t" + .name' 2>/dev/null) || resolved=
+      | jq -r '.resolved[]? | select((.kind == "ticket" or .kind == "person") and (.via == "exact" or .via == "pattern")) | .kind + "\t" + .name' 2>/dev/null) || resolved=
     while IFS= read -r line; do
       [ -n "$line" ] || continue
       kind=${line%%$'\t'*}; name=${line#*$'\t'}
