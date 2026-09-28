@@ -15,7 +15,7 @@
 #
 # Called by the script that already sees a corrected belief, never by an agent:
 #   nm-finding        a no-mistakes finding its pipeline fixed (fm-teardown.sh)
-#   ci-fix            a CI check that failed and later passed on one PR (fm-pr-lib.sh)
+#   ci-fix            a CI check that failed and later passed on one PR (fm-pr-check.sh)
 #   blocker           a `resolved` line closing a `blocked` key (fm-classify-lib.sh)
 #   captain-override  a captain answer choosing another option than the
 #                     recommendation the hold's reason named (fm-captain-hold.sh)
