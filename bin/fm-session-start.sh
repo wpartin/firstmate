@@ -985,6 +985,9 @@ subsection "learnings in force (captain's log view; fm-log.sh recall for the res
 LEARNINGS_VIEW=$(fm_run_timed "${FM_LOG_STARTUP_SECONDS:-5}" env FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
   FM_DATA_OVERRIDE="$DATA" FM_CONFIG_OVERRIDE="$CONFIG" "$SCRIPT_DIR/fm-startup-memory-budget.sh" learnings-view 2>/dev/null) || LEARNINGS_VIEW=
 if [ -n "$LEARNINGS_VIEW" ]; then printf '%s\n' "$LEARNINGS_VIEW"; else printf 'NONE\n'; fi
+if [ "$(head -n 1 "$CONFIG/log" 2>/dev/null | tr -d '[:space:]')" = off ] && [ -s "$DATA/learnings.md" ]; then
+  print_file_or_absent "$DATA/learnings.md" "data/learnings.md (legacy, read-only: nothing writes it; turn the captain's log on to import and file learnings)"
+fi
 
 # --- 9. closing reminder -----------------------------------------------
 stage next-step

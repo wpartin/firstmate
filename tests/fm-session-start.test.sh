@@ -2777,6 +2777,13 @@ EOF2
   assert_not_contains "$out" "captain's log:" "a home with the log off mentioned the log"
   assert_absent "$home/config/fleet-ledger" "the log off still turned on the ledger"
   assert_absent "$home/data/log" "the log off still created the log"
+  assert_not_contains "$out" "data/learnings.md (legacy" "a home with no legacy learnings printed a legacy block"
+  printf -- '- keep the legacy lesson visible\n' > "$home/data/learnings.md"
+  out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+  assert_contains "$out" "data/learnings.md (legacy, read-only" "the log off hid the legacy learnings label"
+  assert_contains "$out" "keep the legacy lesson visible" "the log off hid the legacy learnings"
+  assert_absent "$home/data/log" "printing legacy learnings with the log off created the log"
+  rm -f "$home/data/learnings.md"
   rm -f "$home/config/log"
   out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
   assert_contains "$out" "captain's log: today's note is $home/data/log/" "digest did not print today's note path"

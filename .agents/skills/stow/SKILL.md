@@ -159,7 +159,7 @@ Archived notes are never in the startup view, so provenance stays verbose.
 Reasons include `unreinforced <N>d`, `unreinforced <N>p`, `budget oldest-first`, and `legacy-unvalidated`.
 Recovery is `bin/fm-log.sh mark <slug> in-force --reinforce`, or copying the text back into its captain file.
 Each home keeps its own log, archived notes never cascade, and removing a note is a captain decision, not a mechanism.
-With the captain's log off this home has no learnings store: report that as an exception and leave the entry where it is.
+With the captain's log off this home has no learnings store: tell the operator plainly that filing learnings needs the captain's log on (`config/log` not `off`), report it as an exception, and leave the entry where it is.
 
 ## Over-budget offload to JIT-loaded owners
 
@@ -234,7 +234,7 @@ A local skill exists only in this home, so offloading an entry out of `data/capt
    Do not re-derive or duplicate that mapping here.
 3. **Write within the existing boundaries.**
    - Captain preferences and fleet-local operational facts belong in the destination selected by AGENTS.md after the required whole-file curation pass.
-     File a genuinely new local learning with no stronger owner only with `bin/fm-log.sh learn <slug> <title>` (the entry on stdin); first check `bin/fm-log.sh recall` for a note it supersedes and re-file that slug instead of adding a duplicate.
+     File a genuinely new local learning with no stronger owner only with `bin/fm-log.sh learn <slug> <title>` (the entry on stdin); first check `bin/fm-log.sh recall` for a note it supersedes and re-file that slug instead of adding a duplicate, passing `--status in-force` so a superseded note that was archived returns to the in-force view.
      Pass every source the session evidence shows as `--task`, `--ticket`, and `--project`, and give a learning with no work source at least `--project` of its domain, so recall brings it back at the next task on that ticket or project.
    - In a primary home, curate shared captain preferences only under the existing primary-authoritative shared-preference contract.
      In a secondmate home, route a newly discovered shared preference to the main firstmate through marked status or a document pointer instead of editing the inherited file.
