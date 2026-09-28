@@ -1,0 +1,25 @@
+ok - a prompt naming a configured ticket id injects the recall pack
+ok - the Pi and omp prompt handlers deliver the core's pack and add nothing when it prints nothing
+ok - text and codex modes print the same pack through the one core, and an unknown mode prints nothing
+ok - the commands Claude and Codex register on their prompt-submit hook deliver the core's pack
+ok - a prompt naming a task id or a registered person alias injects the pack
+ok - a prompt with no exact ticket, task, or person injects nothing
+ok - the log off injects nothing
+ok - an unbuilt or corrupt index and a failing or slow recall inject nothing and exit 0
+ok - harness-started turns and a crewmate worktree inject nothing
+rc=0
+ok - a brief for a task with history carries a bounded, path-free Relevant history
+ok - brief history carries only items keyed to the task, never the project alone
+ok - the brief updates the index before recalling the task's own history
+ok - add prints no RELATED for a project named alone
+ok - empty history or an off log leaves the brief unchanged
+ok - a task whose only recall row is its own open item gets no Relevant history
+ok - add stays silent when a title only resembles an entity name
+ok - add prints RELATED only when its entities resolve and the log is on
+rc=0
+ok - claude 2.1.283 (Claude Code): a prompt naming ENG-4242 received the captain's log history
+absent: codex is not installed; its prompt-hook wiring was not checked
+absent: pi is not installed; its prompt-hook wiring was not checked
+absent: omp is not installed; its prompt-hook wiring was not checked
+absent harnesses not checked: codex pi omp
+rc=0
