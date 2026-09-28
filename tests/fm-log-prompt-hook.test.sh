@@ -148,11 +148,19 @@ test_text_and_codex_modes_share_the_core() {
 }
 
 test_every_wired_harness_registers_the_core() {
-  jq -e 'any(.hooks.UserPromptSubmit[]?.hooks[]?.command?; contains("fm-log-prompt-hook.sh"))' "$ROOT/.claude/settings.json" >/dev/null \
-    || fail "Claude UserPromptSubmit does not run the hook"
-  jq -e 'any(.hooks.UserPromptSubmit[]?.hooks[]?.command?; contains("fm-log-prompt-hook.sh\" codex"))' "$ROOT/.codex/hooks.json" >/dev/null \
-    || fail "Codex UserPromptSubmit does not run the hook in codex mode"
-  pass "Claude and Codex register the core on their prompt-submit hook"
+  local home payload cmd out
+  home=$(make_home registered)
+  payload=$(jq -cn '{hook_event_name:"UserPromptSubmit",prompt:"what did we settle on ENG-12?"}')
+  mkdir -p "$PRIMARY/.codex"
+  cp "$ROOT/.codex/hooks.json" "$PRIMARY/.codex/hooks.json"
+  cmd=$(jq -r '.hooks.UserPromptSubmit[].hooks[].command | select(contains("fm-log-prompt-hook.sh"))' "$ROOT/.claude/settings.json")
+  out=$(cd "$PRIMARY" && printf '%s' "$payload" | CLAUDE_PROJECT_DIR="$PRIMARY" hook_env "$home" bash -c "$cmd")
+  assert_contains "$(context "$out")" "resolved: ticket ENG-12" "Claude registered command"
+  cmd=$(jq -r '.hooks.UserPromptSubmit[].hooks[].command | select(contains("fm-log-prompt-hook.sh"))' "$ROOT/.codex/hooks.json")
+  out=$(cd "$PRIMARY" && printf '%s' "$payload" | hook_env "$home" bash -c "$cmd")
+  assert_contains "$(context "$out")" "resolved: ticket ENG-12" "Codex registered command"
+  rm -rf "$PRIMARY/.codex"
+  pass "the commands Claude and Codex register on their prompt-submit hook deliver the core's pack"
 }
 
 test_pi_and_omp_extensions_deliver_the_core() {
