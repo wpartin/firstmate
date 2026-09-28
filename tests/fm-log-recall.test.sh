@@ -509,7 +509,7 @@ test_path_project_files_under_its_name() {
   ledger "$home" '{"v":1,"ts":'"$T0"',"event":"task.dispatched","task":"eng-12-retry","kind":"ship","project":"/srv/repos/billing/","harness":"claude","model":null}' \
     '{"v":1,"ts":'"$((T0 + 60))"',"event":"task.status","task":"eng-12-retry","state":"done","key":null,"text":"retries in"}'
   mkdir -p "$home/data/log/projects" "$home/data/log/2026/09/20"
-  printf '# /srv/repos/billing\n\n- 2026-09-20 09:00 Started: old work %%%% fm:aaaaaaaaaaaa %%%%\n' > "$home/data/log/projects/-srv-repos-billing-.md"
+  printf '# /srv/repos/billing\n\nCaptain prose about deploys.\n\n- 2026-09-20 09:00 Started: old work %%%% fm:aaaaaaaaaaaa %%%%\n' > "$home/data/log/projects/-srv-repos-billing-.md"
   printf -- '- 09:00 Started old work in [[-srv-repos-billing-]] %%%% fm:aaaaaaaaaaaa %%%%\n' > "$home/data/log/2026/09/20/2026-09-20.md"
   run_log "$home" sync >/dev/null 2>&1 || fail "sync failed"
   out=$(run_log "$home" recall --project billing --json) || fail "recall failed: $out"
@@ -518,6 +518,7 @@ test_path_project_files_under_its_name() {
   out=$(cat "$home/data/log/projects/billing.md" 2>/dev/null; grep -rl "srv-repos\|/srv/repos" "$home/data/log" 2>/dev/null)
   has "$out" "retries in" "the task lands in the project's note"
   has "$out" "old work" "the older path-named note merges into it"
+  has "$out" "Captain prose about deploys." "hand-written prose in the older note survives the merge"
   has "$(cat "$home/data/log/2026/09/20/2026-09-20.md")" "[[billing]]" "an older chip now links the project"
   lacks "$out" "srv" "no note or chip names the path"
   pass "a task whose record carries a project path renders and recalls under the project name only"

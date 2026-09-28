@@ -626,14 +626,19 @@ class Log:
                 continue
             path = os.path.join(folder, new + ".md")
             lines = self.load(path) or ["# " + new, ""]
-            for line in old_lines:
-                anchors = FM_ANCHOR.findall(line)
-                if line.startswith("- ") and not (anchors and self.has_anchor(path, anchors[0])):
-                    while lines and lines[-1] == "":
-                        lines.pop()
-                    if lines and not lines[-1].startswith("- "):
-                        lines.append("")
-                    lines += [line, ""]
+            body = old_lines[1:] if old_lines and old_lines[0].startswith("# ") else old_lines
+            body = [line for line in body if not (line.startswith("- ") and FM_ANCHOR.findall(line)
+                                                  and self.has_anchor(path, FM_ANCHOR.findall(line)[0]))]
+            while body and body[0] == "":
+                body.pop(0)
+            while body and body[-1] == "":
+                body.pop()
+            if body:
+                while lines and lines[-1] == "":
+                    lines.pop()
+                if lines and not (lines[-1].startswith("- ") and body[0].startswith("- ")):
+                    lines.append("")
+                lines += body + [""]
             self.store(path, lines)
             self.files.pop(os.path.join(folder, old + ".md"), None)
             os.remove(os.path.join(folder, old + ".md"))
