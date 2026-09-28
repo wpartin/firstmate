@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# tests/fm-log-prompt-hook.test.sh - the Claude prompt hook that hands firstmate
+# tests/fm-log-prompt-hook.test.sh - the harness-agnostic prompt hook that hands firstmate
 # captain's log history (bin/fm-log-prompt-hook.sh, fm-log.sh recall --mentions):
 # a prompt naming a configured ticket, a task id, or a person alias injects a
 # pack; a prompt naming none injects nothing; the log off, an unbuilt index, a
@@ -133,7 +133,68 @@ test_machinery_and_worktrees_inject_nothing() {
   pass "harness-started turns and a crewmate worktree inject nothing"
 }
 
+test_text_and_codex_modes_share_the_core() {
+  local home out
+  home=$(make_home modes)
+  out=$(printf 'what did we settle on eng-12?' | hook_env "$home" "$PRIMARY/bin/fm-log-prompt-hook.sh" text)
+  assert_contains "$out" "resolved: ticket ENG-12" "text pack"
+  [ "$(printf '%s' "$out" | jq -e . >/dev/null 2>&1; echo $?)" != 0 ] || fail "text mode printed JSON"
+  assert_equals "" "$(printf 'nothing exact here' | hook_env "$home" "$PRIMARY/bin/fm-log-prompt-hook.sh" text)" "text naming nothing"
+  assert_equals "" "$(printf '<task-notification>ENG-12</task-notification>' | hook_env "$home" "$PRIMARY/bin/fm-log-prompt-hook.sh" text)" "text machinery"
+  out=$(jq -cn '{hook_event_name:"UserPromptSubmit",prompt:"ENG-12?"}' | hook_env "$home" "$PRIMARY/bin/fm-log-prompt-hook.sh" codex)
+  assert_contains "$(context "$out")" "resolved: ticket ENG-12" "codex pack"
+  assert_equals "" "$(printf 'ENG-12?' | hook_env "$home" "$PRIMARY/bin/fm-log-prompt-hook.sh" bogus)" "unknown mode"
+  pass "text and codex modes print the same pack through the one core, and an unknown mode prints nothing"
+}
+
+test_every_wired_harness_registers_the_core() {
+  jq -e 'any(.hooks.UserPromptSubmit[]?.hooks[]?.command?; contains("fm-log-prompt-hook.sh"))' "$ROOT/.claude/settings.json" >/dev/null \
+    || fail "Claude UserPromptSubmit does not run the hook"
+  jq -e 'any(.hooks.UserPromptSubmit[]?.hooks[]?.command?; contains("fm-log-prompt-hook.sh\" codex"))' "$ROOT/.codex/hooks.json" >/dev/null \
+    || fail "Codex UserPromptSubmit does not run the hook in codex mode"
+  pass "Claude and Codex register the core on their prompt-submit hook"
+}
+
+test_pi_and_omp_extensions_deliver_the_core() {
+  local fixture ext out
+  command -v node >/dev/null 2>&1 || { echo "skip: node not found for the Pi and omp extension test"; return 0; }
+  fixture="$TMP_ROOT/extensions"
+  mkdir -p "$fixture/.pi/extensions/lib" "$fixture/.omp/extensions" "$fixture/bin" "$fixture/state"
+  cp "$ROOT/.pi/extensions/fm-primary-turnend-guard.ts" "$fixture/.pi/extensions/"
+  cp "$ROOT/.omp/extensions/fm-primary-turnend-guard.ts" "$fixture/.omp/extensions/"
+  cp "$ROOT/.pi/extensions/lib/fm-operational-input.ts" "$ROOT/.pi/extensions/lib/fm-sessionstart-supervisor.mjs" \
+    "$fixture/.pi/extensions/lib/"
+  # shellcheck disable=SC2016 # the stub script expands its own variables
+  printf '#!/usr/bin/env bash\n[ "${1:-}" = text ] || exit 0\nmsg=$(cat)\ncase "$msg" in *ENG-12*) printf "RECALL for %%s\\n" "$msg" ;; esac\n' \
+    > "$fixture/bin/fm-log-prompt-hook.sh"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$fixture/bin/fm-turnend-guard.sh"
+  chmod +x "$fixture/bin/"*.sh
+  for ext in .pi .omp; do
+    out=$(EXT="$fixture/$ext/extensions/fm-primary-turnend-guard.ts" FM_HOME="$fixture" FM_ROOT_OVERRIDE="$fixture" \
+      node --input-type=module 2>&1 <<'JS'
+import { pathToFileURL } from "node:url";
+const handlers = new Map();
+const pi = { on(event, handler) { handlers.set(event, handler); }, sendMessage() {} };
+const extension = await import(pathToFileURL(process.env.EXT).href);
+extension.default(pi);
+const ctx = { sessionManager: { getEntries: () => [], getSessionId: () => "s" } };
+const named = await handlers.get("before_agent_start")({ prompt: "what about ENG-12?" }, ctx);
+const plain = await handlers.get("before_agent_start")({ prompt: "nothing exact" }, ctx);
+console.log(JSON.stringify({ named, plain: plain ?? null }));
+process.exit(0);
+JS
+)
+    assert_equals "RECALL for what about ENG-12?" "$(printf '%s' "$out" | jq -r '.named.message.content')" "$ext recall"
+    assert_equals "false" "$(printf '%s' "$out" | jq -r '.named.message.display')" "$ext display"
+    assert_equals "null" "$(printf '%s' "$out" | jq -c '.plain')" "$ext naming nothing"
+  done
+  pass "the Pi and omp prompt handlers deliver the core's pack and add nothing when it prints nothing"
+}
+
 test_ticket_prompt_injects_pack
+test_pi_and_omp_extensions_deliver_the_core
+test_text_and_codex_modes_share_the_core
+test_every_wired_harness_registers_the_core
 test_task_and_alias_prompts_inject_pack
 test_prompt_naming_nothing_injects_nothing
 test_log_off_injects_nothing

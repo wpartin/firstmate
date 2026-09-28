@@ -617,6 +617,19 @@ skip-runner: pi-signed is not installed, so its pin check was not exercised
 
 The guard submits no prompt and spends no tokens, so it runs by default wherever a runner is installed; rerun it after every Claude or Pi upgrade.
 
+## Captain's log prompt history
+
+Verified 2026-09-28 on macOS arm64 with `FM_LOG_PROMPT_HOOK_LIVE_E2E=1 tests/fm-log-prompt-hook-live-e2e.test.sh`, which refreshes this record.
+
+```text
+ok - claude 2.1.283 (Claude Code): a prompt naming ENG-4242 received the captain's log history
+absent: codex is not installed; its prompt-hook wiring was not checked
+absent: pi is not installed; its prompt-hook wiring was not checked
+absent: omp is not installed; its prompt-hook wiring was not checked
+```
+
+The Codex, Pi, and omp wirings are pinned only by the portable `tests/fm-log-prompt-hook.test.sh` until a machine with those harnesses runs the live guard.
+
 ## Codex hook trust
 
 Verified 2026-09-16 on codex-cli 0.151.0, macOS arm64, in a fresh linked worktree of this repository.

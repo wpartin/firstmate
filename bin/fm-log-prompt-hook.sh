@@ -2,13 +2,19 @@
 # fm-log-prompt-hook.sh - hand firstmate the captain's log history for what the
 # captain's message names exactly (docs/captains-log.md "Recall").
 #
-# Claude UserPromptSubmit hook, registered in .claude/settings.json. It reads the
-# hook payload on stdin and, only when the submitted prompt names an exact
-# configured ticket id, logged task id, or registered person or alias, prints
-# `fm-log.sh recall --mentions <prompt> --for captain` wrapped as Claude
-# hookSpecificOutput additionalContext, which Claude adds to the turn. Matching
-# is exact only (bin/fm-log.sh "Recall"); anything fuzzier stays with the
-# captains-log skill trigger.
+# The one harness-agnostic core behind every prompt-submit wiring. Only when the
+# captain's message names an exact configured ticket id, logged task id, or
+# registered person or alias, it prints `fm-log.sh recall --mentions <message>
+# --for captain` under one framing line. Matching is exact only (bin/fm-log.sh
+# "Recall"); anything fuzzier stays with the captains-log skill trigger.
+#
+# Usage: fm-log-prompt-hook.sh [claude|codex|text]
+#   claude, codex (claude is the default): stdin is the harness's JSON
+#     UserPromptSubmit payload; the pack is printed as hookSpecificOutput
+#     additionalContext, which both harnesses add to the turn.
+#   text: stdin is the raw message; the framed pack is printed as plain text,
+#     for an in-process wiring (the Pi and omp extensions) to deliver itself.
+# docs/captains-log.md "Recall" lists which harnesses are wired.
 #
 # It prints nothing and exits 0 - so the prompt goes through untouched - when:
 #   - the hook runs outside a genuine primary firstmate home (a crewmate
@@ -19,8 +25,6 @@
 #   - the prompt names nothing, or nothing it names has history
 #   - recall fails or runs past FM_LOG_PROMPT_HOOK_TIMEOUT seconds (default 3)
 #
-# Claude only for now; other harnesses' prompt hooks are later work.
-#
 # Environment: FM_HOME, FM_ROOT_OVERRIDE, FM_STATE_OVERRIDE, FM_CONFIG_OVERRIDE,
 # FM_DATA_OVERRIDE as bin/fm-log.sh reads them.
 set -u
@@ -30,6 +34,8 @@ FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 BOUND="${FM_LOG_PROMPT_HOOK_TIMEOUT:-3}"
+MODE="${1:-claude}"
+case "$MODE" in claude|codex|text) ;; *) exit 0 ;; esac
 case "$BOUND" in ''|0|*[!0-9]*) BOUND=3 ;; esac
 
 command -v jq >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1 || exit 0
@@ -38,7 +44,11 @@ command -v jq >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1 || exit 0
 fm_primary_scope_matches "$FM_ROOT" "$STATE" || exit 0
 [ -f "$STATE/.log-index.db" ] || exit 0
 
-PROMPT=$(jq -r '(.prompt // "") | tostring' 2>/dev/null) || exit 0
+if [ "$MODE" = text ]; then
+  PROMPT=$(cat 2>/dev/null) || exit 0
+else
+  PROMPT=$(jq -r '(.prompt // "") | tostring' 2>/dev/null) || exit 0
+fi
 [ -n "$PROMPT" ] || exit 0
 case "$PROMPT" in '<task-notification>'*) exit 0 ;; esac
 printf '%s' "$PROMPT" | "$SCRIPT_DIR/fm-operational-input.sh" classify >/dev/null 2>&1 && exit 0
@@ -47,6 +57,11 @@ printf '%s' "$PROMPT" | "$SCRIPT_DIR/fm-operational-input.sh" classify >/dev/nul
 . "$SCRIPT_DIR/fm-timeout-lib.sh"
 PACK=$(FM_HOME="$FM_HOME" fm_run_timed "$BOUND" "$SCRIPT_DIR/fm-log.sh" recall --mentions "$PROMPT" --for captain 2>/dev/null) || exit 0
 [ -n "$PACK" ] || exit 0
-printf 'Captain'"'"'s log history for what this message names (fm-log.sh recall; cite it, verify volatile details):\n%s\n' "$PACK" \
+FRAMED=$(printf 'Captain'"'"'s log history for what this message names (fm-log.sh recall; cite it, verify volatile details):\n%s\n' "$PACK")
+if [ "$MODE" = text ]; then
+  printf '%s\n' "$FRAMED"
+  exit 0
+fi
+printf '%s\n' "$FRAMED" \
   | jq -Rsc '{hookSpecificOutput: {hookEventName: "UserPromptSubmit", additionalContext: .}}' 2>/dev/null || true
 exit 0
