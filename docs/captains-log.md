@@ -101,7 +101,7 @@ Scripts file a learning at the moment a belief is corrected, with no agent step,
 - A worker's `learned [at=<epoch>]: <fact>` status line, and a `resolved` line closing a `blocked` key (the blocker and how it cleared), seen by the status classifier's incremental fold.
 - A captain answer to a hold whose reason names `recommend: <option>` when the answer never mentions that option, seen by `bin/fm-captain-hold.sh answer`.
 - Each `no-mistakes(review|test|lint): <subject>` fix commit on a landed ship branch, seen by `bin/fm-teardown.sh`; `no-mistakes axi status` reports only finding counts, so the fix commit's subject stands for the finding.
-- A GitHub check that failed on one PR commit and passed on a later one, with the fixing commit's subject, seen by `bin/fm-pr-check.sh` when the PR is registered with green checks.
+- A GitHub check that failed on one PR commit and passed on a later one, with the fixing commit's subject, seen by `bin/fm-pr-check.sh` when the PR is registered with green checks and again at its merge-time re-record, once CI has settled.
 
 Each is filed with `bin/fm-log.sh learn --auto` as `learnings/auto-<source>-<hash>.md` with `origin: auto` frontmatter and its task and project as sources.
 The hash covers the correction, so the same correction never files twice, and each fact and correction is bounded to a few hundred characters.
