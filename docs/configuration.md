@@ -623,16 +623,20 @@ Before changing it, inspect the current file and curate the matching bullet in p
 Shared captain preferences that apply across secondmate domains live only in the primary home's optional `data/captain-shared.md`.
 `secondmate-provisioning` owns its propagation contract, including the required header, read-only secondmate copies, quarantine diagnostics, and the rollout rule that existing homes trim `data/captain.md` by hand after first propagation rather than deleting private content automatically.
 
-## Operational learnings (data/learnings.md)
+## Operational learnings (the captain's log)
 
-Fleet-local operational facts and gotchas live locally in `data/learnings.md`; it is gitignored and printed after the captain-preference files in the session-start context digest.
-The file is created lazily on first learning and follows the internal [`stow` skill's](../.agents/skills/stow/SKILL.md) aging-tier and cold-archive contract: inspect the current file first and curate it instead of appending forever.
+Fleet-local operational facts and gotchas live in one store: the captain's log learning notes, `learnings/<slug>.md` under the log root ([`captains-log.md`](captains-log.md)), filed only with `bin/fm-log.sh learn`.
+Each note carries a `status` of `in-force`, `aging`, or `archived` and a `reinforced` date; the internal [`stow` skill](../.agents/skills/stow/SKILL.md) owns how a pass changes them, and nothing is deleted.
+The session-start context digest prints only a bounded view of the notes in force, and recall reaches the rest.
+With the log off this home has no learnings store, and `/stow` reports that rather than writing elsewhere.
+
+`data/learnings.md` and `data/memory-archive.md` are legacy files: the locked session start imports their entries once into learning notes (archive entries arrive archived) and leaves both files untouched as backups.
 
 There is no shared learnings file by captain decision.
 
 ## Startup memory budget (config/startup-memory-budget)
 
-`config/startup-memory-budget` is the primary-authoritative per-home allowance for the startup prompt-memory surface: `data/captain.md`, `data/captain-shared.md`, and `data/learnings.md` together.
+`config/startup-memory-budget` is the primary-authoritative per-home allowance for the startup prompt-memory surface: `data/captain.md`, `data/captain-shared.md`, and the in-force learnings view together.
 The locked mutable bootstrap path materializes its visible default of `7500` estimated tokens in a primary home when the file is absent.
 
 ### Set and validate the budget
@@ -645,7 +649,7 @@ Malformed, multi-line, symlinked, hardlinked, special, or otherwise unsafe value
 
 ### Accounting and curation
 
-Use `bin/fm-startup-memory-budget.sh read` to validate and print the effective value, or `bin/fm-startup-memory-budget.sh report` to account for the three files.
+Use `bin/fm-startup-memory-budget.sh read` to validate and print the effective value, or `bin/fm-startup-memory-budget.sh report` to account for the two files and the view.
 The stable local estimate is `ceil(UTF-8 bytes / 3)` per file, a conservative portable approximation rather than a provider-exact tokenizer.
 
 An inherited `data/captain-shared.md` counts in a secondmate's total but remains primary-owned and read-only there.

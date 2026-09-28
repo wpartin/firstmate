@@ -181,14 +181,14 @@ test_budget_accounting_reports_all_three_files_and_safe_failure() {
     "report did not account for captain memory"
   assert_contains "$out" 'file=data/captain-shared.md bytes=7 estimated_tokens=3 status=present' \
     "report did not account for shared memory"
-  assert_contains "$out" 'file=data/learnings.md bytes=0 estimated_tokens=0 status=absent' \
-    "report did not account for absent learnings"
-  assert_contains "$out" 'total_estimated_tokens=5' "report total was not the sum of all three files"
+  assert_contains "$out" 'view=log-learnings-in-force bytes=0 estimated_tokens=0 entries=0' \
+    "report did not account for an empty learnings view"
+  assert_contains "$out" 'total_estimated_tokens=5' "report total was not the sum of the captain files and the view"
   assert_contains "$out" 'budget_status=within-budget' "report did not classify the initial total"
   assert_contains "$out" 'recent_threads=informational max_lines=10 max_bytes=1024 max_estimated_tokens=342 counted=no' \
     "report did not add the informational RECENT THREADS line"
 
-  printf 'abcdefabcdefabcdefabcdef\n' > "$home/data/learnings.md"
+  printf 'abcdefabcdefabcdefabcdefabcdef\n' > "$home/data/captain.md"
   out=$(FM_HOME="$home" "$BUDGET" report)
   assert_contains "$out" 'budget_status=over-budget' "report did not surface an over-budget total"
 
@@ -204,7 +204,7 @@ test_budget_accounting_reports_all_three_files_and_safe_failure() {
   assert_contains "$out" 'memory file is not an ordinary regular file' \
     "accounting failure did not identify the unsafe memory file"
   [ "$(<"$outside")" = outside ] || fail "accounting failure changed a symlink target"
-  pass "budget accounting sums the three startup files and reports safe failures"
+  pass "budget accounting sums the captain files and the learnings view and reports safe failures"
 }
 
 new_propagation_world() {
@@ -328,9 +328,32 @@ test_primary_budget_converges_with_exact_reread_and_safe_failures() {
   pass "budget propagation converges through config push with exact rereads, absence, and safe rejection"
 }
 
+test_learnings_view_shows_in_force_within_budget() {
+  local home out view
+  home="$TMP_ROOT/view-home"
+  mkdir -p "$home/config" "$home/data" "$home/state"
+  printf '50\n' > "$home/config/startup-memory-budget"
+  printf 'on\n' > "$home/config/log"
+  printf 'cap\n' > "$home/data/captain.md"
+  printf 'Keep waits bounded.\n' | FM_HOME="$home" "$ROOT/bin/fm-log.sh" learn waits "Waits" >/dev/null
+  printf 'Retired quirk.\n' | FM_HOME="$home" "$ROOT/bin/fm-log.sh" learn quirk "Quirk" --status archived >/dev/null
+  printf 'A much longer operational fact that cannot fit.\n' \
+    | FM_HOME="$home" "$ROOT/bin/fm-log.sh" learn long-fact "A much longer operational fact that cannot fit" >/dev/null
+  view=$(FM_HOME="$home" "$BUDGET" learnings-view)
+  assert_contains "$view" "Keep waits bounded." "the view did not show an in-force learning"
+  assert_not_contains "$view" "Retired quirk" "the view showed an archived learning"
+  assert_contains "$view" "more: 1 learnings not shown" "the view did not count what the budget left out"
+  out=$(FM_HOME="$home" "$BUDGET" report)
+  assert_contains "$out" 'budget_status=within-budget' "the view pushed the startup memory over budget"
+  printf 'off\n' > "$home/config/log"
+  [ -z "$(FM_HOME="$home" "$BUDGET" learnings-view)" ] || fail "the view printed learnings with the log off"
+  pass "the learnings view shows in-force learnings, omits archived ones, and stays within budget"
+}
+
 test_primary_bootstrap_materializes_visible_default
 test_safe_parser_rejects_ambiguous_and_unsafe_values
 test_budget_accounting_reports_all_three_files_and_safe_failure
 test_primary_budget_converges_with_exact_reread_and_safe_failures
+test_learnings_view_shows_in_force_within_budget
 
 echo '# all fm-startup-memory-budget tests passed'

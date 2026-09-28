@@ -44,17 +44,39 @@
 #                                  manual escape hatch: one bullet in today's note
 #   fm-log.sh ticket <ID> <text>   manual dated line in tickets/<ID>.md
 #   fm-log.sh learn <slug> <title> [--task ID]... [--ticket ID]... [--project NAME]...
+#                   [--status in-force|aging|archived]
 #                                  write learnings/<slug>.md from stdin and record
 #                                  learning.filed on the ledger (the day note's
 #                                  Worked through link arrives at the next sync).
+#                                  The log's learning notes are the home's one
+#                                  learnings store. Every note opens with filed,
+#                                  status, and reinforced frontmatter: filing
+#                                  stamps reinforced with today, and the status
+#                                  defaults to the note's current one, else in-force.
 #                                  Each flag names the work the learning came from:
 #                                  the note opens with tasks/tickets/projects/filed
 #                                  frontmatter, the record carries them as `sources`,
 #                                  the next sync adds a "Learned" line to each named
 #                                  ticket and project note, and recall returns the
 #                                  learning for any of them (and for the named tasks'
-#                                  tickets and project). With no flag the note has
-#                                  no frontmatter and the record no sources.
+#                                  tickets and project). With no source flag the
+#                                  record carries no sources.
+#   fm-log.sh mark <slug> <in-force|aging|archived> [--reinforce]
+#                                  set a learning note's status (the stow skill's
+#                                  decay); --reinforce also stamps reinforced with
+#                                  today. The text is kept; nothing is deleted.
+#   fm-log.sh learnings [--status S[,S...]] [--max-bytes N]
+#                                  print one line per learning with the given
+#                                  statuses (default in-force), newest reinforcement
+#                                  first, whole entries only within N bytes, then a
+#                                  `more:` line counting what did not fit. Read-only,
+#                                  no lock; the session-start view of the store.
+#   fm-log.sh import-legacy        one-time, idempotent import of data/learnings.md
+#                                  (in force; `<!--g-->` entries aging) and
+#                                  data/memory-archive.md (archived) entries into
+#                                  learning notes named legacy-<hash of the text>;
+#                                  an entry whose note exists is skipped, and both
+#                                  files are left untouched. `start` runs it.
 #   fm-log.sh unresolved           list [[links]] with no note behind them
 #   fm-log.sh entities <text>      at intake, suggest the configured ticket ids and
 #                                  the registered people (names or aliases) found
@@ -134,7 +156,7 @@
 #     folder) stops safely: state/.log-pending is touched, the cursor stays put,
 #     and the next sync replays from the ledger, which is the source of truth.
 #   - A snapshot failure keeps the last queue.md and marks it stale.
-#   - Only sync, start, enable, add, ticket, learn, and index write, always under
+#   - Only sync, start, enable, add, ticket, learn, mark, import-legacy, and index write, always under
 #     state/.log.lock, and never delete anything in the log.
 #
 # Environment: FM_HOME, FM_STATE_OVERRIDE, FM_DATA_OVERRIDE, FM_CONFIG_OVERRIDE
@@ -356,7 +378,40 @@ case "$cmd" in
     [ "$#" -eq 0 ] || usage
     root=$(log_root) || exit 3
     materialize "$root"
+    with_write_lock python3 "$PY" import-legacy "$root" "$DATA" "$(today)" >/dev/null 2>&1 || true
     do_sync 0 "$wait"
+    ;;
+  import-legacy)
+    [ "$#" -eq 0 ] || usage
+    root=$(log_root) || die "the captain's log is off for this home" 3
+    materialize "$root"
+    with_write_lock python3 "$PY" import-legacy "$root" "$DATA" "$(today)"
+    ;;
+  mark)
+    [ "$#" -ge 2 ] && [ "$#" -le 3 ] || usage
+    case "$2" in in-force|aging|archived) ;; *) usage ;; esac
+    reinforce=0
+    if [ "$#" -eq 3 ]; then [ "$3" = --reinforce ] || usage; reinforce=1; fi
+    case "$1" in ''|.*|*[!A-Za-z0-9._-]*) die "learning slug must use A-Za-z0-9._-" 2 ;; esac
+    root=$(log_root) || die "the captain's log is off for this home" 3
+    claim_root "$root"
+    with_write_lock python3 "$PY" mark "$root" "$CONFIG" "$1" "$2" "$reinforce" "$(today)"
+    ;;
+  learnings)
+    statuses=in-force max_bytes=''
+    while [ "$#" -gt 0 ]; do
+      [ "$#" -ge 2 ] || usage
+      case "$1" in
+        --status) case ",$2," in *,,*) usage ;; esac
+          for s in ${2//,/ }; do case "$s" in in-force|aging|archived) ;; *) usage ;; esac; done
+          statuses=$2 ;;
+        --max-bytes) case "$2" in ''|*[!0-9]*) usage ;; esac; max_bytes=$2 ;;
+        *) usage ;;
+      esac
+      shift 2
+    done
+    root=$(log_root) || exit 3
+    exec python3 "$PY" learnings "$root" "$statuses" "$max_bytes"
     ;;
   disable)
     [ "$#" -eq 0 ] || usage
@@ -401,13 +456,14 @@ case "$cmd" in
     shift 2
     case "$slug" in ''|.*|*[!A-Za-z0-9._-]*) die "learning slug must use A-Za-z0-9._-" 2 ;; esac
     [ -n "$title" ] || usage
-    tasks=() tickets=() projects=()
+    tasks=() tickets=() projects=() status=''
     while [ "$#" -gt 0 ]; do
       [ "$#" -ge 2 ] && [ -n "$2" ] || usage
       case "$1" in
         --task) case "$2" in .*|*[!A-Za-z0-9._-]*) die "task id must use A-Za-z0-9._-" 2 ;; esac; tasks+=("$2") ;;
         --ticket) tickets+=("$2") ;;
         --project) projects+=("$2") ;;
+        --status) case "$2" in in-force|aging|archived) status=$2 ;; *) usage ;; esac ;;
         *) usage ;;
       esac
       shift 2
@@ -422,7 +478,7 @@ case "$cmd" in
     fi
     root=$(log_root) || die "the captain's log is off for this home" 3
     claim_root "$root"
-    with_write_lock python3 "$PY" learn "$root" "$CONFIG" "$slug" "$title" "$sources" "$(today)" || exit 1
+    with_write_lock python3 "$PY" learn "$root" "$CONFIG" "$slug" "$title" "$sources" "$status" "$(today)" || exit 1
     [ ! -e "$CONFIG/fleet-ledger" ] || FM_HOME=$FM_HOME FM_STATE_OVERRIDE=$STATE FM_CONFIG_OVERRIDE=$CONFIG \
       "$SCRIPT_DIR/fm-fleet-ledger.sh" learning "$slug" "$title" ${sources:+"$sources"} >/dev/null 2>&1 || true
     ;;

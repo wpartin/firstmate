@@ -11,11 +11,25 @@ metadata:
 # stow
 
 Sweep this session for durable knowledge and open-work record state that exist only in conversation, then leave the next session with a compact current operating map rather than an accumulating journal.
-Memory entries are tiered and decay between passes, and stale material retires to a cold archive instead of being deleted.
+Memory entries are tiered and decay between passes, and stale material retires to archived learning notes in the captain's log instead of being deleted.
+The captain's log learning notes (`learnings/<slug>.md` under the log root) are the home's one learnings store: this skill files, reinforces, ages, and archives learnings only through `bin/fm-log.sh learn` and `bin/fm-log.sh mark`, and never writes `data/learnings.md` or `data/memory-archive.md`, which are legacy backups the locked session start imported once.
 This skill writes only through the existing Firstmate ownership and write boundaries.
 
-## Memory tiers and entry markers
+## Learning note statuses
 
+Each learning note carries `status` and `reinforced` frontmatter, and the session-start digest shows only a bounded view of the notes `in-force`:
+
+- `in-force` - current; stale once its `reinforced` date is 30 or more days old, and then re-validated (`bin/fm-log.sh mark <slug> in-force --reinforce`) or moved to `aging`.
+- `aging` - on its one grace cycle: the next pass re-validates it back to `in-force` with independent evidence, or marks it `archived`.
+- `archived` - the cold tier: out of the startup view, kept whole in the log and in recall; recovery is `bin/fm-log.sh mark <slug> in-force --reinforce`.
+
+A learning with a checkable expiry condition (a backlog id, a version floor, a dated expectation) names it in its prose, and the pass archives it once the condition resolves.
+`bin/fm-log.sh learnings --status in-force,aging` lists what a pass evaluates, oldest reinforcement last.
+Re-filing a slug with `bin/fm-log.sh learn` stamps it reinforced today, so rewrite a note only when its text changes or this session reinforced it.
+
+## Captain-file tiers and entry markers
+
+The markers below apply to `data/captain.md` and `data/captain-shared.md` entries.
 Markers are compact trailing HTML comments, deliberately cheap because marker bytes are counted content:
 
 - `<!--a:YYYY-MM-DD-->` - an `aging` entry; the embedded date is its last-reinforced date.
@@ -42,7 +56,7 @@ The tier names say what the pass does with an entry:
 
 Marking rules:
 
-- Tier defaults are file-scoped: entries in `data/captain.md` and `data/captain-shared.md` default to `pinned` because preferences and authority boundaries do not age, and entries in `data/learnings.md` default to `aging` because operational facts must re-prove themselves.
+- Tier defaults are file-scoped: entries in `data/captain.md` and `data/captain-shared.md` default to `pinned` because preferences and authority boundaries do not age; operational facts are learning notes, whose statuses above make them re-prove themselves.
 - An entry matching its file's `pinned` default carries no marker at all; every `aging` and `perishable` entry always carries its dated marker, whose letter names the tier, so a clock-carrying entry is never ambiguous with unmarked legacy material.
 - Marker and header-pointer bytes count toward the startup-memory budget: the pass's own bookkeeping is costed content, never free, which is why the spellings above are as short as they are.
 - Each memory file's header carries at most a one-line pointer naming this skill as the scheme owner, such as `<!-- memory tiers: see the stow skill -->`.
@@ -78,14 +92,15 @@ While the flag is present:
 Every `/stow` invocation performs this complete pass, even when the session contains no new finding:
 
 1. Run `bin/fm-startup-memory-budget.sh report` before considering a write.
-   Record its effective budget and each file's estimated-token total.
-   The budget is per home: this home's three files against this home's own allowance, never a fleet total.
+   Record its effective budget, each captain file's estimated-token total, and the learnings view's.
+   The budget is per home: this home's two captain files and learnings view against this home's own allowance, never a fleet total.
+   The view is bounded by whatever the captain files leave, so a `more:` line in it means in-force learnings the next session will not see: consolidate them, or move the least-used to `aging`.
    The helper's stable estimate is the documented conservative local approximation, not provider-exact accounting.
    If it rejects the setting or a memory file, do not infer a default or silently continue.
    Report that concrete exception and do not call the session reset-safe.
-2. Read every current memory file completely: `data/captain.md`, `data/captain-shared.md`, and `data/learnings.md`.
+2. Read every current memory file completely: `data/captain.md` and `data/captain-shared.md`, plus `bin/fm-log.sh learnings --status in-force,aging` for the learnings.
    Treat an absent local file as absent, not as an invitation to manufacture content.
-   In a primary home, all three are curation inputs under their existing ownership rules.
+   In a primary home, all of them are curation inputs under their existing ownership rules.
    In a secondmate home, `data/captain-shared.md` is a read-only primary-owned input: count it, never edit it, and curate only the editable local files.
    Every mutation in the rest of this pass, including reinforcement, retiering, decay archival, legacy migration, consolidation, budget archival, and offload, applies only to an editable memory file.
    When a read-only shared entry appears to require one of those changes, leave it untouched, report the required change as an ownership exception, and route it to the primary owner.
@@ -97,11 +112,11 @@ Every `/stow` invocation performs this complete pass, even when the session cont
    Refresh an entry's last-reinforced date to today only when this session actually exercised, confirmed, or re-derived it.
    Where the optional pass horizon is enabled, refreshing that date also clears the entry's unreinforced-pass counter, and nothing else clears it.
    **Hard rule: reinforcement requires independent evidence from this session that you can name in the receipt; plausibility, importance, prior knowledge, and the entry's own text are not evidence, and any explicit statement that no confirming session evidence exists requires the no-evidence path.**
-   For an unmarked `data/learnings.md` entry with no such evidence, the no-evidence path is always to append `<!--g-->` and retain it for this entire pass; never stamp or archive it during that same invocation.
-   Stamp each newly written entry with today's date and its tier per the marking rules, and admit a new `perishable` entry only with its named checkable expiry condition in the prose.
-5. Evaluate every dated entry in each editable memory file against its tier clock.
+   For a learning note, reinforcement is `bin/fm-log.sh mark <slug> in-force --reinforce`.
+   Stamp each newly written captain-file entry with today's date and its tier per the marking rules, and admit a new `perishable` entry only with its named checkable expiry condition in the prose.
+5. Evaluate every learning note against its status clock above, then every dated entry in each editable captain file against its tier clock.
    Where the optional pass horizon is enabled, first increment the unreinforced-pass counter of every dated entry step 4 did not reinforce - that increment is the pass tick - then judge each dated entry against both of its horizons and treat it as stale at whichever it reaches first.
-   Re-validate a stale `aging` entry from current evidence and refresh its date, or archive it.
+   Re-validate a stale `aging` entry from current evidence and refresh its date, or archive it by filing it as an archived learning note (below).
    Re-confirm a stale `perishable` entry against its named condition: still open means refresh the date, while resolved, expired, or no longer checkable means archive it in this pass.
    Promote `perishable` to `aging` when its condition keeps proving durable past its expected life, and retier in place when a supersession changes an entry's lifetime.
    `pinned` is exempt from this automatic decay step entirely.
@@ -129,21 +144,22 @@ A net increase is allowed only for a genuinely new current fact with no stronger
 Before allowing it, consolidate enough lower-priority material to remain within budget.
 Never describe the session as reset-safe while the memory total is over budget or an exception is unresolved.
 
-## The cold tier: data/memory-archive.md
+## The cold tier: archived learning notes
 
-Stale never means deleted: pruning an entry from an editable memory file always means moving it to `data/memory-archive.md`, this home's append-only, never-injected cold tier, gitignored with the rest of `data/` and never counted by the budget report.
-Each archived entry keeps its provenance under a dated pass heading: source file, tier, last-reinforced date, and the reason it left.
+Stale never means deleted.
+A stale learning note is archived in place with `bin/fm-log.sh mark <slug> archived`; its text stays whole.
+Pruning an entry from an editable captain file means filing it with `bin/fm-log.sh learn <slug> <title> --status archived`, its body ending with one provenance line: source file, tier, last-reinforced date, and the reason it left.
 Include the unreinforced-pass counter only when the optional pass horizon itself made the entry stale, using the exact reason `unreinforced <N>p`; omit the counter when the wall-clock horizon or any other reason caused archival, even if the active marker carried one.
-Archive provenance stays verbose rather than compact because the cold tier is never budget-counted.
+Archived notes are never in the startup view, so provenance stays verbose.
 
 ```markdown
-## 2026-08-08 stow
-- (from learnings.md, tier: perishable, reinforced: 2026-06-30) While state/.afk exists, the away-daemon owns triage... [archived: unreinforced 39d]
+(from captain.md, tier: aging, reinforced: 2026-06-30) [archived: unreinforced 39d]
 ```
 
 Reasons include `unreinforced <N>d`, `unreinforced <N>p`, `budget oldest-first`, and `legacy-unvalidated`.
-Archiving is a move, not a removal, and recovery is `grep` plus copy back with no tooling.
-Each home keeps its own archive, the archive never cascades, and truncating a grown archive is a captain decision, not a mechanism.
+Recovery is `bin/fm-log.sh mark <slug> in-force --reinforce`, or copying the text back into its captain file.
+Each home keeps its own log, archived notes never cascade, and removing a note is a captain decision, not a mechanism.
+With the captain's log off this home has no learnings store: report that as an exception and leave the entry where it is.
 
 ## Over-budget offload to JIT-loaded owners
 
@@ -180,7 +196,7 @@ Approved project-level destinations are not produced by stow: they ship normally
   Because this destination is local and untracked, it is also the JIT home for private conditional knowledge that no committed surface may hold.
 - An already-existing user-owned local on-demand note with an established trigger, after confirming it is untracked, private, and able to hold the quoted entry.
   The pass may add the entry to that existing owner but never creates a new note, skill, or trigger for this purpose.
-- When the captain's log is on, the log's learning notes: file a conditional learning with `bin/fm-log.sh learn` and its sources, since recall brings it back at the matching intake, and treat it as live once `learnings/<slug>.md` holds the quoted entry with those sources.
+- The log's learning notes: file a conditional captain-file entry with `bin/fm-log.sh learn` and its sources, since recall brings it back at the matching intake, and treat it as live once `learnings/<slug>.md` holds the quoted entry with those sources.
 - A project-level skill in the project's own repository, for situation-conditional knowledge within one project, through a normal ship task and the project's registered delivery mode.
   A project's committed `AGENTS.md` is never an offload destination: crewmates correct it but only humans extend it (AGENTS.md section 6).
 
@@ -218,13 +234,12 @@ A local skill exists only in this home, so offloading an entry out of `data/capt
    Do not re-derive or duplicate that mapping here.
 3. **Write within the existing boundaries.**
    - Captain preferences and fleet-local operational facts belong in the destination selected by AGENTS.md after the required whole-file curation pass.
-     Create `data/learnings.md` only for a genuinely new local learning with no stronger owner.
-     When this home has the captain's log on (`config/log` present and not `off`), also mirror each newly added learning with `bin/fm-log.sh learn <slug> <title>` (the entry on stdin); `data/learnings.md` stays the curated, budgeted source.
+     File a genuinely new local learning with no stronger owner only with `bin/fm-log.sh learn <slug> <title>` (the entry on stdin); first check `bin/fm-log.sh recall` for a note it supersedes and re-file that slug instead of adding a duplicate.
      Pass every source the session evidence shows as `--task`, `--ticket`, and `--project`, and give a learning with no work source at least `--project` of its domain, so recall brings it back at the next task on that ticket or project.
    - In a primary home, curate shared captain preferences only under the existing primary-authoritative shared-preference contract.
      In a secondmate home, route a newly discovered shared preference to the main firstmate through marked status or a document pointer instead of editing the inherited file.
    - Project-intrinsic knowledge never goes into a project's `AGENTS.md` through this fleet: a crewmate edits those files only to correct factually wrong information (AGENTS.md section 6), so no ship task carries an addition.
-     Keep the candidate in `data/learnings.md` or surface it in the completion receipt so the captain can extend the file by hand.
+     Keep the candidate as a learning note or surface it in the completion receipt so the captain can extend the file by hand.
    - Knowledge general to every Firstmate user belongs in this repo's shared tracked material through the normal branch, no-mistakes, PR, and captain-merge path.
    - For task-scoped notes, inspect the item with `bin/fm-tasks-axi.sh show <id> --full`, classify the change as new, duplicate, superseding, or obsolete, then use a considered replacement body through `bin/fm-tasks-axi.sh update <id> --body-file <path>`.
      Use `--archive-body` when recoverability matters.
@@ -232,7 +247,7 @@ A local skill exists only in this home, so offloading an entry out of `data/capt
    - File each undone next step as a queued backlog item with a genuine `blocked-by` dependency when applicable.
 4. **Use inspect-then-update.**
    For every retained fact, ask which current statement it supersedes, whether it can be a one-sentence rewrite, and whether a stale entry should be refreshed, archived, or routed to an existing stronger owner.
-   The only graduation moves are promotion to tracked shared material through a PR, folding a learning into the captain-preference destination selected by AGENTS.md, archiving a stale entry to `data/memory-archive.md`, autonomous offload of an eligible non-pinned conditional entry to an already-existing allowed owner through the reduce flow above, captain-approved offload of a pinned durable conditional entry to a JIT-loaded owner executed through the migration step above, or deletion of an entry that is a duplicate or already preserved through a stronger existing owner.
+   The only graduation moves are promotion to tracked shared material through a PR, folding a learning into the captain-preference destination selected by AGENTS.md, archiving a stale entry as an archived learning note, autonomous offload of an eligible non-pinned conditional entry to an already-existing allowed owner through the reduce flow above, captain-approved offload of a pinned durable conditional entry to a JIT-loaded owner executed through the migration step above, or deletion of an entry that is a duplicate or already preserved through a stronger existing owner.
    A stale unique fact is never deleted, only archived.
    Do not invent another graduation path.
 
@@ -247,23 +262,18 @@ One bound holds: this covers the open work you are actually holding in context, 
 It is not a reconciliation of durable records against repository or forge reality, cannot become one on input this volatile, and must never be reported as one.
 Where the right correction is a judgment you cannot make, leave the record alone and raise the question instead of guessing.
 
-## One-time migration of unmarked entries
+## Legacy entries
 
-Legacy entries carry no markers; an unmarked entry is its file's default tier with unknown age, and unknown age is not guilt.
-The first pass after adoption performs a one-time revalidation sweep of editable memory files instead of blanket restamping, while a read-only shared file remains untouched and any required change is routed to its primary owner:
-
-- In `data/captain.md` and `data/captain-shared.md`, every unmarked entry is simply default-pinned and remains exempt from the aging clock, legacy grace cycle, and archive-by-age; consolidation still applies, and only genuine tier deviations receive markers.
-- In `data/learnings.md`, stamp each entry the pass can confirm current with its compact dated marker for today, using a deviating tier letter or `<!--P-->` only where the entry genuinely deviates from the `aging` default.
-- On the first pass that cannot cite independent current-session evidence for an unmarked entry in `data/learnings.md`, add `<!--g-->` as its trailing marker and retain it through the rest of that pass; carrying no date, it persists that the entry has consumed exactly one grace cycle without pretending it was reinforced.
-- Only an entry that already carried `<!--g-->` when this invocation began is on the next-pass branch: replace that marker with the normal dated tier marker if independent current-session evidence confirms the entry; otherwise archive it with provenance `legacy-unvalidated`.
-- The grace period is one full stow cycle, not a time window, and the same persisted transition applies when a hand edit later leaves an entry unmarked in `data/learnings.md`.
+In `data/captain.md` and `data/captain-shared.md`, every unmarked entry is simply default-pinned and exempt from the aging clock and archive-by-age; consolidation still applies, and only genuine tier deviations receive markers.
+Legacy `data/learnings.md` and `data/memory-archive.md` entries are imported by the scripts, not by this pass: `bin/fm-log.sh start` makes one `legacy-<hash>` note per entry (a dated entry in force with its date, a `<!--g-->` entry aging, an archive entry archived) and leaves both files untouched.
+An imported note then follows the statuses above like any other; an aging one the pass cannot confirm is archived with provenance `legacy-unvalidated`.
 
 ## Completion receipt
 
 Report the outcome in plain captain-facing language with all of these facts:
 
 - effective startup-memory budget and total estimated tokens before and after;
-- one or more actions for each of `data/captain.md`, `data/captain-shared.md`, and `data/learnings.md`, using only `unchanged`, `added`, `rewritten`, `pruned`, `routed`, `archived`, or `proposed-offload`; adding or replacing a migration marker is `rewritten`, never a new action verb such as `migrated`;
+- one or more actions for each of `data/captain.md`, `data/captain-shared.md`, and the log's learnings, using only `unchanged`, `added`, `rewritten`, `pruned`, `routed`, `archived`, or `proposed-offload`; adding or replacing a migration marker is `rewritten`, never a new action verb such as `migrated`;
 - each durable finding filed outside memory and its authoritative owner;
 - each archived entry's reason, each autonomous offload's live destination and actual relief, and, when a pinned candidate was proposed, the `proposed-offload` section with every candidate's fields;
 - every unresolved exception, including a primary-owned shared-file constraint in a secondmate home, and every concrete captain decision opened for an over-budget result;

@@ -52,7 +52,8 @@
 #   7. network checks - the result of the deferred network stage started back at
 #                       step 1, harvested WITHOUT waiting for it.
 #      Then, locked and unless config/log says off, one bounded captain's
-#                       log start (fm-log.sh start: ledger and layout, then sync) (FM_LOG_STARTUP_SECONDS, default 5) that prints
+#                       log start (fm-log.sh start: ledger, layout, and the one-time
+#                       import of legacy learnings files, then sync) (FM_LOG_STARTUP_SECONDS, default 5) that prints
 #                       only today's note path (docs/captains-log.md), then a
 #                       RECENT THREADS block (fm-log.sh recall --recent --limit 8
 #                       --for threads): open captain decisions older than today
@@ -60,8 +61,11 @@
 #                       tickets and projects, at most 10 lines and 1 KB, and
 #                       nothing at all when the index is empty, stale, or unreadable.
 #   8. context digest - data/projects.md, data/secondmates.md, data/captain.md,
-#                       data/captain-shared.md, data/learnings.md: read-only,
-#                       always safe, always runs.
+#                       data/captain-shared.md, then the in-force learnings view
+#                       of the captain's log (fm-startup-memory-budget.sh
+#                       learnings-view, whole entries within the budget left
+#                       after the captain files; NONE when empty or off):
+#                       read-only, always safe, always runs.
 #   9. closing reminder - prints the context-specific watcher next step; this
 #                       script points back to the emitted harness supervision
 #                       block and deliberately never arms the watcher itself.
@@ -814,7 +818,7 @@ cat <<'EOF'
 Everything below is printed in full for this session start: every state/*.meta,
 a compact data/backlog.md listing, a bounded tail of every state/*.status,
 data/projects.md, data/secondmates.md, data/captain.md, data/captain-shared.md,
-and data/learnings.md.
+and a bounded view of the in-force learnings in the captain's log.
 Do NOT re-read any of them after reading this digest, and do NOT bulk-read
 data/backlog.md or state/*.status: re-reading everything defeats the entire
 point of this command.
@@ -822,6 +826,7 @@ point of this command.
 Go to a source directly only when:
   - this digest flagged it ABSENT (then rebuild or create it per AGENTS.md),
   - its contents looked unparseable or corrupt,
+  - a learning outside that view is needed (bin/fm-log.sh recall),
   - an individual full status log is needed for older wake-event history, or a
     status line was capped and its tail matters (each task's full log path is
     printed with its tail),
@@ -975,7 +980,11 @@ print_file_or_absent "$DATA/projects.md" "data/projects.md"
 print_file_or_absent "$DATA/secondmates.md" "data/secondmates.md"
 print_file_or_absent "$DATA/captain.md" "data/captain.md"
 print_file_or_absent "$DATA/captain-shared.md" "data/captain-shared.md (shared, main-authoritative, read-only in secondmate homes)"
-print_file_or_absent "$DATA/learnings.md" "data/learnings.md"
+# Learnings live only in the captain's log; this is its bounded in-force view.
+subsection "learnings in force (captain's log view; fm-log.sh recall for the rest)"
+LEARNINGS_VIEW=$(fm_run_timed "${FM_LOG_STARTUP_SECONDS:-5}" env FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
+  FM_DATA_OVERRIDE="$DATA" FM_CONFIG_OVERRIDE="$CONFIG" "$SCRIPT_DIR/fm-startup-memory-budget.sh" learnings-view 2>/dev/null) || LEARNINGS_VIEW=
+if [ -n "$LEARNINGS_VIEW" ]; then printf '%s\n' "$LEARNINGS_VIEW"; else printf 'NONE\n'; fi
 
 # --- 9. closing reminder -----------------------------------------------
 stage next-step

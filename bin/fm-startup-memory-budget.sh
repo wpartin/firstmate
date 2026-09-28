@@ -3,11 +3,12 @@
 # Usage:
 #   fm-startup-memory-budget.sh read
 #   fm-startup-memory-budget.sh report
+#   fm-startup-memory-budget.sh learnings-view
 #
 # `read` prints the one validated effective budget from
 # config/startup-memory-budget.  `report` prints the stable local estimate for
-# data/captain.md, data/captain-shared.md, and data/learnings.md together,
-# then one informational recent_threads line for the digest's RECENT THREADS
+# data/captain.md, data/captain-shared.md, and the in-force learnings view
+# together, then one informational recent_threads line for the digest's RECENT THREADS
 # block, a bounded log projection that is never counted against the budget.
 # Bootstrap owns default materialization; this command never creates or repairs
 # configuration, so an absent, malformed, symlinked, hardlinked, or otherwise
@@ -24,7 +25,7 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 . "$SCRIPT_DIR/fm-startup-memory-budget-lib.sh"
 
 usage() {
-  sed -n '2,13{s/^# \{0,1\}//;p;}' "$0"
+  sed -n '2,18{s/^# \{0,1\}//;p;}' "$0"
 }
 
 print_error() {
@@ -37,6 +38,24 @@ read_budget() {
     return 1
   fi
   printf '%s\n' "$FM_STARTUP_MEMORY_BUDGET_VALUE"
+}
+
+# Print the byte allowance the budget leaves for the learnings view.
+view_bytes() {  # <budget>
+  local file used=0
+  for file in captain.md captain-shared.md; do
+    fm_startup_memory_measure_file "$DATA/$file" >/dev/null || return 1
+    used=$((used + FM_STARTUP_MEMORY_MEASURE_TOKENS))
+  done
+  if [ "$used" -ge "$1" ]; then printf '0\n'; else printf '%s\n' $((($1 - used) * 3)); fi
+}
+
+# Print the bounded in-force learnings view; nothing when the log is off.
+learnings_view() {  # <budget>
+  local bytes
+  bytes=$(view_bytes "$1") || return 1
+  FM_HOME="$FM_HOME" FM_DATA_OVERRIDE="$DATA" FM_CONFIG_OVERRIDE="$CONFIG" \
+    "$SCRIPT_DIR/fm-log.sh" learnings --max-bytes "$bytes" 2>/dev/null || true
 }
 
 report() {
@@ -52,7 +71,7 @@ report() {
   printf 'estimator=ceil(UTF-8 bytes / 3) conservative-local-estimate\n'
   printf 'role=%s\n' "$role"
   printf 'effective_budget_tokens=%s\n' "$budget"
-  for file in captain.md captain-shared.md learnings.md; do
+  for file in captain.md captain-shared.md; do
     if ! fm_startup_memory_measure_file "$DATA/$file" >/dev/null; then
       print_error "$FM_STARTUP_MEMORY_BUDGET_ERROR"
       return 2
@@ -65,6 +84,14 @@ report() {
     printf 'file=data/%s bytes=%s estimated_tokens=%s status=%s\n' \
       "$file" "$bytes" "$tokens" "$presence"
   done
+  local view
+  view=$(learnings_view "$budget") || { print_error "$FM_STARTUP_MEMORY_BUDGET_ERROR"; return 2; }
+  bytes=$(printf '%s' "$view" | wc -c | tr -d ' ')
+  [ -z "$view" ] || bytes=$((bytes + 1))
+  tokens=$(fm_startup_memory_estimated_tokens_for_bytes "$bytes")
+  total=$((total + tokens))
+  printf 'view=log-learnings-in-force bytes=%s estimated_tokens=%s entries=%s\n' \
+    "$bytes" "$tokens" "$(printf '%s\n' "$view" | grep -c '^- ' || true)"
   printf 'total_estimated_tokens=%s\n' "$total"
   if fm_startup_memory_decimal_le "$total" "$budget"; then
     printf 'budget_status=within-budget\n'
@@ -86,6 +113,11 @@ case "${1:-}" in
   report)
     [ "$#" -eq 1 ] || { usage >&2; exit 2; }
     report
+    ;;
+  learnings-view)
+    [ "$#" -eq 1 ] || { usage >&2; exit 2; }
+    budget=$(read_budget) || exit 2
+    learnings_view "$budget" || { print_error "$FM_STARTUP_MEMORY_BUDGET_ERROR"; exit 2; }
     ;;
   -h|--help)
     usage
