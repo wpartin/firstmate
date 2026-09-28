@@ -17,14 +17,14 @@ This skill writes only through the existing Firstmate ownership and write bounda
 
 ## Learning note statuses
 
-Each learning note carries `status` and `reinforced` frontmatter, and the session-start digest shows only a bounded view of the notes `in-force`:
+Each learning note carries `status`, `tier`, and `reinforced` frontmatter, and the session-start digest shows only a bounded view of the notes `in-force`.
+The tier sets the decay clock: `pinned` never ages or archives, `perishable` is stale 7 or more days after its `reinforced` date, and `normal` 30 or more; `bin/fm-log.sh stale` lists exactly the notes whose clock has run out, and a pass decays only those.
 
-- `in-force` - current; stale once its `reinforced` date is 30 or more days old, and then re-validated (`bin/fm-log.sh mark <slug> in-force --reinforce`) or moved to `aging`.
+- `in-force` - current; once stale, re-validated (`bin/fm-log.sh mark <slug> in-force --reinforce`) or moved to `aging`.
 - `aging` - on its one grace cycle: the next pass re-validates it back to `in-force` with independent evidence, or marks it `archived`.
 - `archived` - the cold tier: out of the startup view, kept whole in the log and in recall; recovery is `bin/fm-log.sh mark <slug> in-force --reinforce`.
 
 A learning with a checkable expiry condition (a backlog id, a version floor, a dated expectation) names it in its prose, and the pass archives it once the condition resolves.
-`bin/fm-log.sh learnings --status in-force,aging` lists what a pass evaluates, oldest reinforcement last.
 Re-filing a slug with `bin/fm-log.sh learn` stamps it reinforced today, so rewrite a note only when its text changes or this session reinforced it.
 
 ## Captain-file tiers and entry markers

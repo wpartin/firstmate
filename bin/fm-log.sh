@@ -44,15 +44,18 @@
 #                                  manual escape hatch: one bullet in today's note
 #   fm-log.sh ticket <ID> <text>   manual dated line in tickets/<ID>.md
 #   fm-log.sh learn <slug> <title> [--task ID]... [--ticket ID]... [--project NAME]...
-#                   [--status in-force|aging|archived]
+#                   [--status in-force|aging|archived] [--tier pinned|perishable|normal]
 #                                  write learnings/<slug>.md from stdin and record
 #                                  learning.filed on the ledger (the day note's
 #                                  Worked through link arrives at the next sync).
 #                                  The log's learning notes are the home's one
 #                                  learnings store. Every note opens with filed,
-#                                  status, and reinforced frontmatter: filing
-#                                  stamps reinforced with today, and the status
-#                                  defaults to the note's current one, else in-force.
+#                                  status, tier, and reinforced frontmatter: filing
+#                                  stamps reinforced with today, and the status and
+#                                  tier default to the note's current ones, else
+#                                  in-force and normal. The tier sets the decay clock:
+#                                  pinned never ages or archives, perishable is stale
+#                                  7 days after reinforcement, normal 30.
 #                                  Each flag names the work the learning came from:
 #                                  the note opens with tasks/tickets/projects/filed
 #                                  frontmatter, the record carries them as `sources`,
@@ -65,6 +68,10 @@
 #                                  set a learning note's status (the stow skill's
 #                                  decay); --reinforce also stamps reinforced with
 #                                  today. The text is kept; nothing is deleted.
+#                                  A pinned note refuses aging and archived.
+#   fm-log.sh stale                list the unarchived learning notes whose tier
+#                                  clock has run out, one `<slug> <status> <tier>
+#                                  <reinforced>` line each: what a stow pass decays.
 #   fm-log.sh learnings [--status S[,S...]] [--max-bytes N]
 #                                  print one line per learning with the given
 #                                  statuses (default in-force), newest reinforcement
@@ -72,7 +79,8 @@
 #                                  `more:` line counting what did not fit. Read-only,
 #                                  no lock; the session-start view of the store.
 #   fm-log.sh import-legacy        one-time, idempotent import of data/learnings.md
-#                                  (in force; `<!--g-->` entries aging) and
+#                                  (in force; `<!--g-->` entries aging; `<!--P-->`
+#                                  pinned, `<!--p:...-->` perishable tier) and
 #                                  data/memory-archive.md (archived) entries into
 #                                  learning notes named legacy-<hash of the text>;
 #                                  an entry whose note exists is skipped, and both
@@ -397,6 +405,11 @@ case "$cmd" in
     claim_root "$root"
     with_write_lock python3 "$PY" mark "$root" "$CONFIG" "$1" "$2" "$reinforce" "$(today)"
     ;;
+  stale)
+    [ "$#" -eq 0 ] || usage
+    root=$(log_root) || exit 3
+    exec python3 "$PY" stale "$root" "$(today)"
+    ;;
   learnings)
     statuses=in-force max_bytes=''
     while [ "$#" -gt 0 ]; do
@@ -456,7 +469,7 @@ case "$cmd" in
     shift 2
     case "$slug" in ''|.*|*[!A-Za-z0-9._-]*) die "learning slug must use A-Za-z0-9._-" 2 ;; esac
     [ -n "$title" ] || usage
-    tasks=() tickets=() projects=() status=''
+    tasks=() tickets=() projects=() status='' tier=''
     while [ "$#" -gt 0 ]; do
       [ "$#" -ge 2 ] && [ -n "$2" ] || usage
       case "$1" in
@@ -464,6 +477,7 @@ case "$cmd" in
         --ticket) tickets+=("$2") ;;
         --project) projects+=("$2") ;;
         --status) case "$2" in in-force|aging|archived) status=$2 ;; *) usage ;; esac ;;
+        --tier) case "$2" in pinned|perishable|normal) tier=$2 ;; *) usage ;; esac ;;
         *) usage ;;
       esac
       shift 2
@@ -478,7 +492,7 @@ case "$cmd" in
     fi
     root=$(log_root) || die "the captain's log is off for this home" 3
     claim_root "$root"
-    with_write_lock python3 "$PY" learn "$root" "$CONFIG" "$slug" "$title" "$sources" "$status" "$(today)" || exit 1
+    with_write_lock python3 "$PY" learn "$root" "$CONFIG" "$slug" "$title" "$sources" "$status" "$tier" "$(today)" || exit 1
     [ ! -e "$CONFIG/fleet-ledger" ] || FM_HOME=$FM_HOME FM_STATE_OVERRIDE=$STATE FM_CONFIG_OVERRIDE=$CONFIG \
       "$SCRIPT_DIR/fm-fleet-ledger.sh" learning "$slug" "$title" ${sources:+"$sources"} >/dev/null 2>&1 || true
     ;;

@@ -616,5 +616,44 @@ test_legacy_import_is_idempotent() {
   pass "the legacy import is idempotent, keeps the old files, and maps markers to statuses"
 }
 
+test_legacy_tiers_decay_on_their_own_clocks() {
+  local home stale slug
+  home=$(make_home legacy-tiers)
+  snapshot "$home"
+  printf '%s\n' '# Learnings' \
+    '- Never restart the shared daemon while runs are active. <!--P-->' \
+    '- CI is red until the runner image updates. <!--p:2026-09-10-->' \
+    '- Branch before editing in a pool slot. <!--a:2026-09-10-->' > "$home/data/learnings.md"
+  TODAY=2026-09-10 run_log "$home" import-legacy >/dev/null || fail "import failed"
+  has "$(cat "$home"/data/log/learnings/*.md)" "tier: pinned" "a pinned entry lost its tier"
+  stale=$(TODAY=2026-09-20 run_log "$home" stale) || fail "stale failed"
+  has "$stale" "in-force perishable 2026-09-10" "a perishable entry kept a 7-day clock"
+  lacks "$stale" "normal" "a normal entry went stale before 30 days"
+  lacks "$stale" "pinned" "a pinned entry went stale"
+  stale=$(TODAY=2026-12-31 run_log "$home" stale) || fail "stale failed"
+  has "$stale" "in-force normal 2026-09-10" "a normal entry went stale after 30 days"
+  lacks "$stale" "pinned" "a pinned entry went stale"
+  while read -r slug _; do
+    TODAY=2026-12-31 run_log "$home" mark "$slug" archived >/dev/null || fail "stow could not archive $slug"
+  done <<<"$stale"
+  slug=$(grep -l "tier: pinned" "$home"/data/log/learnings/*.md | xargs basename | sed 's/\.md$//')
+  if run_log "$home" mark "$slug" archived >/dev/null 2>&1; then fail "a pinned note was archived"; fi
+  assert_equals "- Never restart the shared daemon while runs are active. [learnings/$slug.md, reinforced 2026-09-10]" \
+    "$(run_log "$home" learnings)" "the in-force view is not just the pinned note"
+  pass "legacy tiers survive import and decay on their own clocks through a stow pass"
+}
+
+test_learnings_view_names_what_the_budget_cut() {
+  local home
+  home=$(make_home view-cut)
+  snapshot "$home"
+  printf 'A learning.\n' | run_log "$home" learn one "One" >/dev/null || fail "learn failed"
+  assert_equals "more: 1 learnings not shown (fm-log.sh recall to find them)" \
+    "$(run_log "$home" learnings --max-bytes 0)" "an exhausted budget hid that learnings exist"
+  pass "an exhausted budget still names the learnings it cut"
+}
+
 test_learnings_live_only_in_the_log
 test_legacy_import_is_idempotent
+test_legacy_tiers_decay_on_their_own_clocks
+test_learnings_view_names_what_the_budget_cut

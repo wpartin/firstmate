@@ -888,13 +888,22 @@ def split_frontmatter(text):
 
 
 LEARNING_STATUSES = ("in-force", "aging", "archived")
+# Days since reinforcement before a note of each tier is stale; a pinned note never is.
+LEARNING_TIERS = {"pinned": None, "perishable": 7, "normal": 30}
 
 
-def learning_head(sources, filed, status, reinforced):
+def learning_head(sources, filed, status, reinforced, tier):
     """The frontmatter block every learning note opens with."""
     head = ["---"] + (["%s: %s" % (k, json.dumps(sources[k])) for k in SOURCE_KEYS] if any(sources.values()) else [])
-    head += ["filed: %s" % filed, "status: %s" % status, "reinforced: %s" % reinforced, "---"]
+    head += ["filed: %s" % filed, "status: %s" % status] + (["tier: %s" % tier] if tier != "normal" else [])
+    head += ["reinforced: %s" % reinforced, "---"]
     return "\n".join(head) + "\n"
+
+
+def learning_tier(fields):
+    """A note's decay tier; a note written before tiers existed is normal."""
+    tier = fields.get("tier")
+    return tier if tier in LEARNING_TIERS else "normal"
 
 
 def learning_status(fields):
@@ -903,27 +912,28 @@ def learning_status(fields):
     return status if status in LEARNING_STATUSES else "in-force"
 
 
-def write_learning(root, cfg, slug, title, body, sources, today, status=None, reinforced=None):
-    """Write learnings/<slug>.md whole, keeping its filed date and, unless given, its status."""
+def write_learning(root, cfg, slug, title, body, sources, today, status=None, reinforced=None, tier=None):
+    """Write learnings/<slug>.md whole, keeping its filed date and, unless given, its status and tier."""
     path = os.path.join(root, "learnings", safe_name(slug) + ".md")
     fields = split_frontmatter(read(path) or "")[0]
     status = status or learning_status(fields)
     text = "# %s\n\n%s" % (title.strip(), body if body.endswith("\n") or not body else body + "\n")
-    text = learning_head(sources, fields.get("filed") or today, status, reinforced or today) + text
+    tier = tier or learning_tier(fields)
+    text = learning_head(sources, fields.get("filed") or today, status, reinforced or today, tier) + text
     if read(path) != text:
         write_atomic(path, text)
     return path
 
 
 def cmd_learn(args):
-    root, config_dir, slug, title, sources_json, status, today = args
+    root, config_dir, slug, title, sources_json, status, tier, today = args
     body = sys.stdin.read()
     try:
         raw = json.loads(sources_json) if sources_json else None
     except ValueError:
         raw = None
     sources = learning_sources(raw, Config(config_dir))
-    print(write_learning(root, None, slug, title, body, sources, today, status or None))
+    print(write_learning(root, None, slug, title, body, sources, today, status or None, None, tier or None))
 
 
 def cmd_mark(args):
@@ -934,9 +944,12 @@ def cmd_mark(args):
         sys.stderr.write("fm-log: no learning note learnings/%s.md\n" % safe_name(slug))
         return 1
     fields, rest = split_frontmatter(text)
+    if learning_tier(fields) == "pinned" and status != "in-force":
+        sys.stderr.write("fm-log: learnings/%s.md is pinned and never ages or archives\n" % safe_name(slug))
+        return 1
     sources = learning_sources(fields, Config(config_dir))
     reinforced = today if reinforce == "1" else str(fields.get("reinforced") or fields.get("filed") or today)
-    new = learning_head(sources, fields.get("filed") or today, status, reinforced) + rest.lstrip("\n")
+    new = learning_head(sources, fields.get("filed") or today, status, reinforced, learning_tier(fields)) + rest.lstrip("\n")
     if new != text:
         write_atomic(path, new)
     print(path)
@@ -982,8 +995,24 @@ def cmd_learnings(args):
             shown.append(entry)
             used += size(entry)
     sys.stdout.write("".join(shown))
-    if len(shown) < len(entries) and (limit is None or limit >= 0):
+    if len(shown) < len(entries):
         sys.stdout.write(more % (len(entries) - len(shown)))
+    return 0
+
+
+def cmd_stale(args):
+    root, today = args
+    now = datetime.date.fromisoformat(today)
+    for slug, fields, title, body in learning_notes(root):
+        days = LEARNING_TIERS[learning_tier(fields)]
+        if days is None or learning_status(fields) == "archived":
+            continue
+        try:
+            then = datetime.date.fromisoformat(str(fields.get("reinforced") or fields.get("filed")))
+        except ValueError:
+            then = None
+        if then is None or (now - then).days >= days:
+            print("%s %s %s %s" % (slug, learning_status(fields), learning_tier(fields), then or "unknown"))
     return 0
 
 
@@ -1028,10 +1057,13 @@ def cmd_import(args):
         if not text:
             continue
         for heading, entry in legacy_entries(text):
-            reinforced, status = None, "archived" if archived else "in-force"
+            reinforced, status, tier = None, "archived" if archived else "in-force", "normal"
             for m in LEGACY_MARKER.finditer(entry):
                 if m.group(2):
                     reinforced = m.group(2)
+                    tier = "perishable" if m.group(1) == "p" else tier
+                elif m.group(3) == "P":
+                    tier = "pinned"
                 elif m.group(3) == "g" and not archived:
                     status = "aging"
             entry = LEGACY_MARKER.sub("", entry).strip()
@@ -1052,7 +1084,7 @@ def cmd_import(args):
                 continue
             sources = {k: [] for k in SOURCE_KEYS}
             write_learning(root, None, slug, legacy_title(entry), entry + "\n",
-                           sources, reinforced or today, status, reinforced or today)
+                           sources, reinforced or today, status, reinforced or today, tier)
             imported += 1
     if imported:
         print("imported %d legacy learnings" % imported)
@@ -2103,7 +2135,7 @@ def main(argv):
     if len(argv) >= 2 and argv[1] == "recall":
         return cmd_recall(argv[2:])
     cmds = {"sync": (cmd_sync, 8), "add": (cmd_add, 6), "ticket": (cmd_ticket, 4),
-            "learn": (cmd_learn, 7), "mark": (cmd_mark, 6), "learnings": (cmd_learnings, 3),
+            "learn": (cmd_learn, 8), "mark": (cmd_mark, 6), "learnings": (cmd_learnings, 3), "stale": (cmd_stale, 2),
             "import-legacy": (cmd_import, 3), "unresolved": (cmd_unresolved, 1), "index": (cmd_index, 7),
             "entities": (cmd_entities, 2), "export": (cmd_export, 2)}
     if len(argv) < 2 or argv[1] not in cmds or len(argv) - 2 != cmds[argv[1]][1]:
