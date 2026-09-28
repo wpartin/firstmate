@@ -142,7 +142,8 @@ Firstmate sees relevant history at the moments it acts, without having to rememb
   | Kimi | not wired as a primary hook surface | Unsupported |
 
   On an unsupported harness the `captains-log` skill trigger carries the same questions.
-  `tests/fm-log-prompt-hook.test.sh` pins the core and every wiring's handler, and `tests/fm-log-prompt-hook-live-e2e.test.sh` proves each installed wired harness end to end ([`verification/runtime-backends.md`](verification/runtime-backends.md) "Captain's log prompt history").
+  Claude is live-verified; Codex, Pi, pi-signed, and omp are verified only by the portable `tests/fm-log-prompt-hook.test.sh` until `tests/fm-log-prompt-hook-live-e2e.test.sh` runs where they are installed.
+  The portable test pins the core and every wiring's handler, and the live guard proves each installed wired harness end to end ([`verification/runtime-backends.md`](verification/runtime-backends.md) "Captain's log prompt history").
 
 ## When it renders
 
