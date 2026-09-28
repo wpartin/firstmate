@@ -1,0 +1,5 @@
+ok - claude 2.1.283 (Claude Code): a prompt naming ENG-4242 received the captain's log history
+absent: codex is not installed; its prompt-hook wiring was not checked
+absent: pi is not installed; its prompt-hook wiring was not checked
+absent: omp is not installed; its prompt-hook wiring was not checked
+absent harnesses not checked: codex pi omp

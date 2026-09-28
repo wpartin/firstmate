@@ -1,0 +1,8 @@
+ok - a brief for a task with history carries a bounded, path-free Relevant history
+ok - brief history carries only items keyed to the task, never the project alone
+ok - the brief updates the index before recalling the task's own history
+ok - add prints no RELATED for a project named alone
+ok - empty history or an off log leaves the brief unchanged
+ok - a task whose only recall row is its own open item gets no Relevant history
+ok - add stays silent when a title only resembles an entity name
+ok - add prints RELATED only when its entities resolve and the log is on
