@@ -646,6 +646,9 @@ The report is the only thing that survives, so anything worth keeping must be in
    Each append wakes firstmate, so report sparingly: only phase changes a supervisor
    would act on and the needs-decision/blocked/paused/done/failed states. No step-by-step
    FYI progress lines; firstmate reads your pane for that.
+   When you discover that something you or the brief believed was wrong, append
+   \`learned [at=<epoch>]: {the true fact and what it corrected}\` once; firstmate files it
+   as a learning automatically, so keep it to one fact.
    Whenever you mention a PR anywhere - a status line, your terminal, a summary - write its full
    https:// URL exactly as the forge printed it, never a bare number such as "PR 108"; firstmate
    copies that URL from your line rather than assembling one.
@@ -830,6 +833,9 @@ $RULE1
    would act on (setup done, bug reproduced, fix implemented, validation passed) and the
    needs-decision/blocked/paused/done/failed states. No step-by-step FYI progress lines;
    firstmate reads your pane for that.
+   When you discover that something you or the brief believed was wrong, append
+   \`learned [at=<epoch>]: {the true fact and what it corrected}\` once; firstmate files it
+   as a learning automatically, so keep it to one fact.
    Whenever you mention a PR anywhere - a status line, your terminal, a summary - write its full
    https:// URL exactly as the forge printed it, never a bare number such as "PR 108"; firstmate
    copies that URL from your line rather than assembling one.

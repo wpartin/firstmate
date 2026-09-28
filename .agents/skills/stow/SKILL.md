@@ -26,6 +26,7 @@ The tier sets the decay clock: `pinned` never ages or archives, `perishable` is 
 
 A learning with a checkable expiry condition (a backlog id, a version floor, a dated expectation) names it in its prose, and the pass archives it once the condition resolves.
 Re-filing a slug with `bin/fm-log.sh learn` stamps it reinforced today, so rewrite a note only when its text changes or this session reinforced it.
+Notes with `origin: auto` (slug `auto-<source>-<hash>`, shown `auto` in the view) were filed by scripts at the moment a belief was corrected ([captain's log](../../../docs/captains-log.md#automatic-learnings)); curate them like any other note, rewriting one into a durable general fact, archiving one that was task-local, or folding duplicates into one note.
 
 ## Captain-file tiers and entry markers
 

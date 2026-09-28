@@ -44,7 +44,7 @@
 #                                  manual escape hatch: one bullet in today's note
 #   fm-log.sh ticket <ID> <text>   manual dated line in tickets/<ID>.md
 #   fm-log.sh learn <slug> <title> [--task ID]... [--ticket ID]... [--project NAME]...
-#                   [--status in-force|aging|archived] [--tier pinned|perishable|normal]
+#                   [--status in-force|aging|archived] [--tier pinned|perishable|normal] [--auto]
 #                                  write learnings/<slug>.md from stdin and record
 #                                  learning.filed on the ledger (the day note's
 #                                  Worked through link arrives at the next sync).
@@ -56,6 +56,10 @@
 #                                  in-force and normal. The tier sets the decay clock:
 #                                  pinned never ages or archives, perishable is stale
 #                                  7 days after reinforcement, normal 30.
+#                                  --auto marks a learning a script filed (origin: auto
+#                                  frontmatter, for /stow to curate) and makes the slug
+#                                  its dedupe key: when learnings/<slug>.md already
+#                                  exists nothing is written or recorded (exit 0).
 #                                  Each flag names the work the learning came from:
 #                                  the note opens with tasks/tickets/projects/filed
 #                                  frontmatter, the record carries them as `sources`,
@@ -469,8 +473,9 @@ case "$cmd" in
     shift 2
     case "$slug" in ''|.*|*[!A-Za-z0-9._-]*) die "learning slug must use A-Za-z0-9._-" 2 ;; esac
     [ -n "$title" ] || usage
-    tasks=() tickets=() projects=() status='' tier=''
+    tasks=() tickets=() projects=() status='' tier='' origin=''
     while [ "$#" -gt 0 ]; do
+      if [ "$1" = --auto ]; then origin=auto; shift; continue; fi
       [ "$#" -ge 2 ] && [ -n "$2" ] || usage
       case "$1" in
         --task) case "$2" in .*|*[!A-Za-z0-9._-]*) die "task id must use A-Za-z0-9._-" 2 ;; esac; tasks+=("$2") ;;
@@ -492,7 +497,10 @@ case "$cmd" in
     fi
     root=$(log_root) || die "the captain's log is off for this home" 3
     claim_root "$root"
-    with_write_lock python3 "$PY" learn "$root" "$CONFIG" "$slug" "$title" "$sources" "$status" "$tier" "$(today)" || exit 1
+    rc=0
+    with_write_lock python3 "$PY" learn "$root" "$CONFIG" "$slug" "$title" "$sources" "$status" "$tier" "$origin" "$(today)" || rc=$?
+    [ "$rc" -ne 10 ] || exit 0
+    [ "$rc" -eq 0 ] || exit 1
     [ ! -e "$CONFIG/fleet-ledger" ] || FM_HOME=$FM_HOME FM_STATE_OVERRIDE=$STATE FM_CONFIG_OVERRIDE=$CONFIG \
       "$SCRIPT_DIR/fm-fleet-ledger.sh" learning "$slug" "$title" ${sources:+"$sources"} >/dev/null 2>&1 || true
     ;;
