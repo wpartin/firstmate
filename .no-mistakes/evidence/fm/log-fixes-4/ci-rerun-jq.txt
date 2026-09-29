@@ -1,0 +1,3 @@
+# jq rerun filter on a commit where flaky "test" failed (id 1) then passed on rerun (id 2)
+success	lint
+success	test

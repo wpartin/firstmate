@@ -1,0 +1,6 @@
+ok - a learned status line files an auto learning with its sources
+ok - a resolved blocker files its cause once
+ok - a captain answer overriding the recommendation files a learning
+ok - pipeline fix commits file one deduplicated learning each
+ok - a CI check fixed on the same PR files its fixing commit
+ok - nothing is filed while the log is off
