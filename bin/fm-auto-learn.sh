@@ -57,7 +57,7 @@ case "${1:-}" in
     while IFS=$'\t' read -r sha subject; do
       [ -n "$sha" ] || continue
       runs=$(gh api "repos/$4/commits/$sha/check-runs?per_page=100" \
-        --jq '.check_runs[] | [.conclusion // "", .name] | @tsv' 2>/dev/null) || continue
+        --jq '.check_runs | group_by(.name) | map(max_by(.id))[] | [.conclusion // "", .name] | @tsv' 2>/dev/null) || continue
       while IFS=$'\t' read -r conclusion name; do
         [ -n "$name" ] || continue
         case "$conclusion" in
