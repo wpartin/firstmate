@@ -1,0 +1,92 @@
++(eval):11> FM_HOME=/var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.cWsN8E9RbO /Users/wpartin/.no-mistakes/worktrees/c3110707bde4/01M3QTV42Z3HK5JT33BZW8PQKP/bin/fm-log.sh enable /var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.cWsN8E9RbO/log
+/var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.cWsN8E9RbO/log
++(eval):12> FM_HOME=/var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.cWsN8E9RbO /Users/wpartin/.no-mistakes/worktrees/c3110707bde4/01M3QTV42Z3HK5JT33BZW8PQKP/bin/fm-log.sh import-legacy
+imported 5 legacy learnings
++(eval):13> FM_HOME=/var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.cWsN8E9RbO /Users/wpartin/.no-mistakes/worktrees/c3110707bde4/01M3QTV42Z3HK5JT33BZW8PQKP/bin/fm-log.sh import-legacy
++(eval):14> head -8 /var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.cWsN8E9RbO/log/learnings/legacy-85396b85cd54.md /var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.cWsN8E9RbO/log/learnings/legacy-9761b52ed306.md /var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.cWsN8E9RbO/log/learnings/legacy-d386d7d9c422.md /var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.cWsN8E9RbO/log/learnings/legacy-da8efdbce2a8.md /var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.cWsN8E9RbO/log/learnings/legacy-f4a8530a2077.md
+==> /var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.cWsN8E9RbO/log/learnings/legacy-85396b85cd54.md <==
+---
+filed: 2026-09-29
+status: in-force
+reinforced: 2026-09-29
+---
+# Prefer rg over grep.
+
+Prefer rg over grep.
+
+==> /var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.cWsN8E9RbO/log/learnings/legacy-9761b52ed306.md <==
+---
+filed: 2026-09-29
+status: in-force
+tier: pinned
+reinforced: 2026-09-29
+---
+# Never restart the shared daemon while runs are active.
+
+
+==> /var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.cWsN8E9RbO/log/learnings/legacy-d386d7d9c422.md <==
+---
+filed: 2026-09-29
+status: archived
+reinforced: 2026-09-29
+---
+# Archived fact about old CI.
+
+Archived fact about old CI.
+
+==> /var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.cWsN8E9RbO/log/learnings/legacy-da8efdbce2a8.md <==
+---
+filed: 2026-09-01
+status: in-force
+tier: perishable
+reinforced: 2026-09-01
+---
+# Release branch freezes this week.
+
+
+==> /var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.cWsN8E9RbO/log/learnings/legacy-f4a8530a2077.md <==
+---
+filed: 2026-09-29
+status: aging
+reinforced: 2026-09-29
+---
+# Old gossip claim.
+
+Old gossip claim.
++(eval):15> FM_HOME=/var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.cWsN8E9RbO /Users/wpartin/.no-mistakes/worktrees/c3110707bde4/01M3QTV42Z3HK5JT33BZW8PQKP/bin/fm-log.sh learnings --status in-force,aging,archived
+- Old gossip claim. [learnings/legacy-f4a8530a2077.md, reinforced 2026-09-29]
+- Archived fact about old CI. [learnings/legacy-d386d7d9c422.md, reinforced 2026-09-29]
+- Never restart the shared daemon while runs are active. [learnings/legacy-9761b52ed306.md, reinforced 2026-09-29]
+- Prefer rg over grep. [learnings/legacy-85396b85cd54.md, reinforced 2026-09-29]
+- Release branch freezes this week. [learnings/legacy-da8efdbce2a8.md, reinforced 2026-09-01]
++(eval):16> FM_HOME=/var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.cWsN8E9RbO /Users/wpartin/.no-mistakes/worktrees/c3110707bde4/01M3QTV42Z3HK5JT33BZW8PQKP/bin/fm-log.sh stale
+legacy-da8efdbce2a8 in-force perishable 2026-09-01
++(eval):17> FM_HOME=/var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.cWsN8E9RbO /Users/wpartin/.no-mistakes/worktrees/c3110707bde4/01M3QTV42Z3HK5JT33BZW8PQKP/bin/fm-log.sh learnings --max-bytes 10
+more: 3 learnings not shown (fm-log.sh recall to find them)
++(eval):18> p=+(eval):18> xargs basename -s .md
++(eval):18> p=+(eval):18> grep -l 'tier: pinned' /var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.cWsN8E9RbO/log/learnings/legacy-85396b85cd54.md /var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.cWsN8E9RbO/log/learnings/legacy-9761b52ed306.md /var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.cWsN8E9RbO/log/learnings/legacy-d386d7d9c422.md /var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.cWsN8E9RbO/log/learnings/legacy-da8efdbce2a8.md /var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.cWsN8E9RbO/log/learnings/legacy-f4a8530a2077.md
++grep:1> local _cc_a
++grep:2> _cc_a=-l
++grep:3> case -l (-*-filter* | -*-pager* | -*-view* | -*-format-open* | -*-config* | ---* | -@* | -*-save-config* | -[Zz]* | -[!-]*[Zz]* | --null | --null-data)
++grep:2> _cc_a=tier: pinned
++grep:3> case tier: pinned (-*-filter* | -*-pager* | -*-view* | -*-format-open* | -*-config* | ---* | -@* | -*-save-config* | -[Zz]* | -[!-]*[Zz]* | --null | --null-data)
++grep:2> _cc_a=/var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.cWsN8E9RbO/log/learnings/legacy-85396b85cd54.md
++grep:3> case /var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.cWsN8E9RbO/log/learnings/legacy-85396b85cd54.md (-*-filter* | -*-pager* | -*-view* | -*-format-open* | -*-config* | ---* | -@* | -*-save-config* | -[Zz]* | -[!-]*[Zz]* | --null | --null-data)
++grep:2> _cc_a=/var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.cWsN8E9RbO/log/learnings/legacy-9761b52ed306.md
++grep:3> case /var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.cWsN8E9RbO/log/learnings/legacy-9761b52ed306.md (-*-filter* | -*-pager* | -*-view* | -*-format-open* | -*-config* | ---* | -@* | -*-save-config* | -[Zz]* | -[!-]*[Zz]* | --null | --null-data)
++grep:2> _cc_a=/var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.cWsN8E9RbO/log/learnings/legacy-d386d7d9c422.md
++grep:3> case /var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.cWsN8E9RbO/log/learnings/legacy-d386d7d9c422.md (-*-filter* | -*-pager* | -*-view* | -*-format-open* | -*-config* | ---* | -@* | -*-save-config* | -[Zz]* | -[!-]*[Zz]* | --null | --null-data)
++grep:2> _cc_a=/var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.cWsN8E9RbO/log/learnings/legacy-da8efdbce2a8.md
++grep:3> case /var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.cWsN8E9RbO/log/learnings/legacy-da8efdbce2a8.md (-*-filter* | -*-pager* | -*-view* | -*-format-open* | -*-config* | ---* | -@* | -*-save-config* | -[Zz]* | -[!-]*[Zz]* | --null | --null-data)
++grep:2> _cc_a=/var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.cWsN8E9RbO/log/learnings/legacy-f4a8530a2077.md
++grep:3> case /var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.cWsN8E9RbO/log/learnings/legacy-f4a8530a2077.md (-*-filter* | -*-pager* | -*-view* | -*-format-open* | -*-config* | ---* | -@* | -*-save-config* | -[Zz]* | -[!-]*[Zz]* | --null | --null-data)
++grep:5> local _cc_bin=/opt/homebrew/Caskroom/claude-code@latest/2.1.283/claude
++grep:6> [[ -x /opt/homebrew/Caskroom/claude-code@latest/2.1.283/claude ]]
++grep:7> [[ ! -x /opt/homebrew/Caskroom/claude-code@latest/2.1.283/claude ]]
++grep:8> [[ -n 5.9 ]]
++grep:9> ARGV0=ugrep ugrep -G --ignore-files --hidden -I '--exclude-dir=.git' '--exclude-dir=.svn' '--exclude-dir=.hg' '--exclude-dir=.bzr' '--exclude-dir=.jj' '--exclude-dir=.sl' -l 'tier: pinned' /var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.cWsN8E9RbO/log/learnings/legacy-85396b85cd54.md /var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.cWsN8E9RbO/log/learnings/legacy-9761b52ed306.md /var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.cWsN8E9RbO/log/learnings/legacy-d386d7d9c422.md /var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.cWsN8E9RbO/log/learnings/legacy-da8efdbce2a8.md /var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.cWsN8E9RbO/log/learnings/legacy-f4a8530a2077.md
++(eval):18> p=legacy-9761b52ed306 
++(eval):18> FM_HOME=/var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.cWsN8E9RbO /Users/wpartin/.no-mistakes/worktrees/c3110707bde4/01M3QTV42Z3HK5JT33BZW8PQKP/bin/fm-log.sh mark legacy-9761b52ed306 archived
+fm-log: learnings/legacy-9761b52ed306.md is pinned and never ages or archives
++(eval):18> echo 'rc=1'
+rc=1
