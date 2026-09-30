@@ -2122,6 +2122,56 @@ ${context.command}
     return stockOutcomesPreviewLines ?? undefined;
   };
 
+  // Pi 0.99 added the call's arguments to the stock call header; probe once so older Pi keeps its bare title.
+  let stockCallHeaderShowsArgs: boolean | undefined;
+  const getStockCallHeaderShowsArgs = (): boolean => {
+    if (stockCallHeaderShowsArgs !== undefined) return stockCallHeaderShowsArgs;
+    try {
+      const probeDefinition: ToolDefinition = {
+        name: "fm_call_header_probe",
+        label: "Call header probe",
+        description: "Call header probe",
+        parameters: Type.Object({}),
+        execute: async () => ({ content: [], details: undefined }),
+      };
+      const probe = new ToolExecutionComponent(
+        probeDefinition.name,
+        "fm-call-header-probe",
+        { fm_probe_arg: "FM_CALL_HEADER_PROBE" },
+        { showImages: false },
+        probeDefinition,
+        { requestRender() {} } as ConstructorParameters<typeof ToolExecutionComponent>[5],
+        root,
+      );
+      stockCallHeaderShowsArgs = probe.render(4096).join("\n").includes("FM_CALL_HEADER_PROBE");
+    } catch {
+      stockCallHeaderShowsArgs = false;
+    }
+    return stockCallHeaderShowsArgs;
+  };
+  // Mirrors Pi 0.99's stock formatToolCallWithArgs, which the package does not export.
+  const formatOutcomesToolCall = (
+    title: string,
+    args: unknown,
+    theme: Parameters<NonNullable<ToolDefinition["renderCall"]>>[1],
+    expanded: boolean,
+  ): string => {
+    const header = theme.fg("toolTitle", theme.bold(title));
+    if (args == null || !getStockCallHeaderShowsArgs()) return header;
+    const entries = typeof args === "object" && !Array.isArray(args) ? Object.entries(args) : [["args", args]];
+    if (entries.length === 0) return header;
+    if (expanded) {
+      const lines = entries.map(([key, value]) => {
+        const text = typeof value === "string" ? value : (JSON.stringify(value, null, 2) ?? String(value));
+        return `  ${key}: ${text.replace(/\t/g, "   ").replace(/\r/g, "").split("\n").join("\n    ")}`;
+      });
+      return `${header}\n${theme.fg("muted", lines.join("\n"))}`;
+    }
+    const pairs = entries.map(([key, value]) => `${key}=${JSON.stringify(value) ?? String(value)}`).join(" ");
+    const preview = pairs.length > 100 ? `${pairs.slice(0, 97)}...` : pairs;
+    return `${header} ${theme.fg("muted", preview)}`;
+  };
+
   type OutcomesToolShellState = {
     shell?: Box;
     call?: Text;
@@ -2156,11 +2206,11 @@ ${context.command}
       recent: Type.Optional(Type.Number({ description: "How many most-recent outcomes to read (default 20)" })),
     }),
     renderShell: "self",
-    renderCall: (_args, theme, context) => {
+    renderCall: (args, theme, context) => {
       if (calmPresentation.stockExportRendering) throw new Error("Use Pi stock export rendering");
       if (calmHides("assistant-tool-call")) return new Container();
       const shellState = context.state as OutcomesToolShellState;
-      shellState.call = new Text(theme.fg("toolTitle", theme.bold("fm_branch_outcomes")), 0, 0);
+      shellState.call = new Text(formatOutcomesToolCall("fm_branch_outcomes", args, theme, context.expanded), 0, 0);
       return refreshOutcomesToolShell(shellState, theme, context);
     },
     renderResult: (result, options, theme, context) => {
@@ -2218,11 +2268,11 @@ ${context.command}
       through: Type.Number({ description: "The highest outcome sequence number this conversation has processed" }),
     }),
     renderShell: "self",
-    renderCall: (_args, theme, context) => {
+    renderCall: (args, theme, context) => {
       if (calmPresentation.stockExportRendering) throw new Error("Use Pi stock export rendering");
       if (calmHides("assistant-tool-call")) return new Container();
       const shellState = context.state as OutcomesToolShellState;
-      shellState.call = new Text(theme.fg("toolTitle", theme.bold("fm_branch_processed")), 0, 0);
+      shellState.call = new Text(formatOutcomesToolCall("fm_branch_processed", args, theme, context.expanded), 0, 0);
       return refreshOutcomesToolShell(shellState, theme, context);
     },
     renderResult: (result, _options, theme, context) => {

@@ -4384,9 +4384,32 @@ JS
     || fail "could not render calm-mode HTML export DOM: $chrome_report"
   node - "$export_dom" <<'JS' || fail "rendered export DOM violated the Calm conversation boundary"
 const dom = require("node:fs").readFileSync(process.argv[2], "utf8");
-const messages = dom.match(/<div id="messages">([\s\S]*?)<\/main>/)?.[1];
+const allMessages = dom.match(/<div id="messages">([\s\S]*?)<\/main>/)?.[1];
 const tree = dom.match(/<div[^>]*id="tree-container"[^>]*>([\s\S]*?)<div[^>]*id="tree-status"/)?.[1];
-if (!messages || !tree) process.exit(1);
+if (!allMessages || !tree) process.exit(1);
+// Pi 0.99 exports display:false custom messages as hook-message-hidden blocks that its own CSS hides until the viewer opts in.
+if (allMessages.includes("hook-message-hidden")) {
+  if (!/<body(?![^>]*show-hidden-messages)[^>]*>/.test(dom)) process.exit(1);
+  if (!dom.includes("body:not(.show-hidden-messages) .hook-message-hidden")) process.exit(1);
+}
+const withoutHiddenHooks = (html) => {
+  let out = "";
+  let at = 0;
+  const open = /<div class="hook-message hook-message-hidden"[^>]*>/g;
+  for (let match = open.exec(html); match; match = open.exec(html)) {
+    out += html.slice(at, match.index);
+    const tags = /<div\b[^>]*>|<\/div>/g;
+    tags.lastIndex = match.index + match[0].length;
+    let depth = 1;
+    let tag;
+    while (depth > 0 && (tag = tags.exec(html))) depth += tag[0] === "</div>" ? -1 : 1;
+    if (depth > 0) process.exit(1);
+    at = tags.lastIndex;
+    open.lastIndex = at;
+  }
+  return out + html.slice(at);
+};
+const messages = withoutHiddenHooks(allMessages);
 if (!/<div class="user-message"[^>]*>[\s\S]*Show a deterministic tool example\./.test(messages)) process.exit(1);
 if (!/<div class="assistant-message"[^>]*>[\s\S]*The deterministic tool example is complete\./.test(messages)) process.exit(1);
 if (messages.includes('<div class="hook-message"')) process.exit(1);
