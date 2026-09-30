@@ -525,3 +525,20 @@ test_path_project_files_under_its_name() {
 }
 test_path_project_files_under_its_name
 
+test_path_repair_survives_a_failed_sync() {
+  local home out
+  home=$(make_home path-crash)
+  ledger "$home" '{"v":1,"ts":'"$T0"',"event":"task.dispatched","task":"eng-12-retry","kind":"ship","project":"/srv/repos/billing/","harness":"claude","model":null}'
+  mkdir -p "$home/data/log/projects" "$home/data/log/queue.md"
+  printf '# /srv/repos/billing\n\nCaptain prose about deploys.\n' > "$home/data/log/projects/-srv-repos-billing-.md"
+  if run_log "$home" sync >/dev/null 2>&1; then fail "sync should fail while queue.md is unwritable"; fi
+  out=$(cat "$home/data/log/projects/"*.md)
+  has "$out" "Captain prose about deploys." "the path-named note survives a sync that fails before flushing"
+  rmdir "$home/data/log/queue.md"
+  run_log "$home" sync >/dev/null 2>&1 || fail "sync failed"
+  [ ! -e "$home/data/log/projects/-srv-repos-billing-.md" ] || fail "the path-named note is removed once merged"
+  out=$(cat "$home/data/log/projects/billing.md")
+  [ "$(grep -c "Captain prose about deploys." <<<"$out")" = 1 ] || fail "prose merged exactly once: $out"
+  pass "a sync that fails after the path repair loses no hand-written prose"
+}
+test_path_repair_survives_a_failed_sync

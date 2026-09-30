@@ -161,6 +161,7 @@ class Log:
         self.rows = {r["id"]: r for r in self.snapshot.get("queue", []) or []}
         self.inflight = {r["id"]: r for r in self.snapshot.get("in_flight", []) or []}
         self.files = {}
+        self.removals = []
         self.carry_limit = carry_limit
         self._disk_paths = None
 
@@ -183,6 +184,10 @@ class Log:
                 text += "\n"
             if read(path) != text:
                 write_atomic(path, text)
+        for path in self.removals:
+            if os.path.exists(path):
+                os.remove(path)
+        self.removals = []
 
     def has_anchor(self, path, aid):
         lines = self.load(path)
@@ -641,12 +646,14 @@ class Log:
                 lines += body + [""]
             self.store(path, lines)
             self.files.pop(os.path.join(folder, old + ".md"), None)
-            os.remove(os.path.join(folder, old + ".md"))
+            self.removals.append(os.path.join(folder, old + ".md"))
         chips = {"[[%s]]" % old: "[[%s]]" % new for old, new in renames.items()}
         for top, dirs, files in os.walk(self.root):
             dirs[:] = [d for d in dirs if d != "attachments" and not d.startswith(".")]
             for name in files:
                 path = os.path.join(top, name)
+                if path in self.removals:
+                    continue
                 if not name.endswith(".md") or (path not in self.files and "[[" not in (read(path) or "")):
                     continue
                 lines = self.load(path) or []
