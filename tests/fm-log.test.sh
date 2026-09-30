@@ -640,6 +640,14 @@ test_legacy_tiers_decay_on_their_own_clocks() {
   if run_log "$home" mark "$slug" archived >/dev/null 2>&1; then fail "a pinned note was archived"; fi
   assert_equals "- Never restart the shared daemon while runs are active. [learnings/$slug.md, reinforced 2026-09-10]" \
     "$(run_log "$home" learnings)" "the in-force view is not just the pinned note"
+  if printf 'Refiled.\n' | run_log "$home" learn "$slug" "Refiled" --status archived >/dev/null 2>&1; then
+    fail "learn --status archived re-filed a pinned note"
+  fi
+  if printf 'New.\n' | run_log "$home" learn pinned-new "New" --tier pinned --status aging >/dev/null 2>&1; then
+    fail "learn filed a new pinned note as aging"
+  fi
+  has "$(cat "$home/data/log/learnings/$slug.md")" "status: in-force" "learn left the pinned note in force"
+  [ ! -e "$home/data/log/learnings/pinned-new.md" ] || fail "a refused pinned filing wrote a note"
   pass "legacy tiers survive import and decay on their own clocks through a stow pass"
 }
 

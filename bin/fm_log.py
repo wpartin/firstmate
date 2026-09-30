@@ -933,6 +933,10 @@ def cmd_learn(args):
     except ValueError:
         raw = None
     sources = learning_sources(raw, Config(config_dir))
+    old = split_frontmatter(read(os.path.join(root, "learnings", safe_name(slug) + ".md")) or "")[0]
+    if (tier or learning_tier(old)) == "pinned" and status and status != "in-force":
+        sys.stderr.write("fm-log: learnings/%s.md is pinned and never ages or archives\n" % safe_name(slug))
+        return 1
     print(write_learning(root, None, slug, title, body, sources, today, status or None, None, tier or None))
 
 
