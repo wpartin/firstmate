@@ -1,0 +1,106 @@
++(eval):8> bin/fm-log.sh enable
+/var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.S6eNpXoLlz/data/log
++(eval):8> bin/fm-log.sh import-legacy
+imported 5 legacy learnings
++(eval):8> bin/fm-log.sh import-legacy
++(eval):8> ls -G /var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.S6eNpXoLlz/log/learnings
++(eval):8> bin/fm-log.sh path
++(eval):8> ls -G /var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.S6eNpXoLlz/data/log/learnings
+legacy-0063cb4a9fd2.md
+legacy-0431798f420c.md
+legacy-9761b52ed306.md
+legacy-9f950f839dea.md
+legacy-ae785cf539a9.md
++(eval):8> bin/fm-log.sh path
++(eval):8> head -8 /var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.S6eNpXoLlz/data/log/learnings/legacy-0063cb4a9fd2.md /var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.S6eNpXoLlz/data/log/learnings/legacy-0431798f420c.md /var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.S6eNpXoLlz/data/log/learnings/legacy-9761b52ed306.md /var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.S6eNpXoLlz/data/log/learnings/legacy-9f950f839dea.md /var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.S6eNpXoLlz/data/log/learnings/legacy-ae785cf539a9.md
+==> /var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.S6eNpXoLlz/data/log/learnings/legacy-0063cb4a9fd2.md <==
+---
+filed: 2026-12-01
+status: in-force
+tier: perishable
+reinforced: 2026-12-01
+---
+# Check the API token expiry before release.
+
+
+==> /var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.S6eNpXoLlz/data/log/learnings/legacy-0431798f420c.md <==
+---
+filed: 2026-09-30
+status: archived
+reinforced: 2026-09-30
+---
+# Archived ancient rule.
+
+Archived ancient rule.
+
+==> /var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.S6eNpXoLlz/data/log/learnings/legacy-9761b52ed306.md <==
+---
+filed: 2026-09-30
+status: in-force
+tier: pinned
+reinforced: 2026-09-30
+---
+# Never restart the shared daemon while runs are active.
+
+
+==> /var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.S6eNpXoLlz/data/log/learnings/legacy-9f950f839dea.md <==
+---
+filed: 2026-09-30
+status: in-force
+reinforced: 2026-09-30
+---
+# Prefer rebase over merge on feature branches.
+
+Prefer rebase over merge on feature branches.
+
+==> /var/folders/36/2_6kg25x1wj4bnsb4mhgc7th0000gn/T/tmp.S6eNpXoLlz/data/log/learnings/legacy-ae785cf539a9.md <==
+---
+filed: 2026-09-30
+status: aging
+reinforced: 2026-09-30
+---
+# Old graying rule.
+
+Old graying rule.
++(eval):8> bin/fm-log.sh learnings
+- Check the API token expiry before release. [learnings/legacy-0063cb4a9fd2.md, reinforced 2026-12-01]
+- Prefer rebase over merge on feature branches. [learnings/legacy-9f950f839dea.md, reinforced 2026-09-30]
+- Never restart the shared daemon while runs are active. [learnings/legacy-9761b52ed306.md, reinforced 2026-09-30]
++(eval):8> bin/fm-log.sh learnings --status in-force,aging,archived
+- Check the API token expiry before release. [learnings/legacy-0063cb4a9fd2.md, reinforced 2026-12-01]
+- Old graying rule. [learnings/legacy-ae785cf539a9.md, reinforced 2026-09-30]
+- Prefer rebase over merge on feature branches. [learnings/legacy-9f950f839dea.md, reinforced 2026-09-30]
+- Never restart the shared daemon while runs are active. [learnings/legacy-9761b52ed306.md, reinforced 2026-09-30]
+- Archived ancient rule. [learnings/legacy-0431798f420c.md, reinforced 2026-09-30]
++(eval):8> bin/fm-log.sh learnings --max-bytes 10
+more: 3 learnings not shown (fm-log.sh recall to find them)
++(eval):8> S=+(eval):8> bin/fm-log.sh learnings
++(eval):8> S=+(eval):8> grep -i daemon
++grep:1> local _cc_a
++grep:2> _cc_a=-i
++grep:3> case -i (-*-filter* | -*-pager* | -*-view* | -*-format-open* | -*-config* | ---* | -@* | -*-save-config* | -[Zz]* | -[!-]*[Zz]* | --null | --null-data)
++grep:2> _cc_a=daemon
++grep:3> case daemon (-*-filter* | -*-pager* | -*-view* | -*-format-open* | -*-config* | ---* | -@* | -*-save-config* | -[Zz]* | -[!-]*[Zz]* | --null | --null-data)
++grep:5> local _cc_bin=/opt/homebrew/Caskroom/claude-code@latest/2.1.283/claude
++grep:6> [[ -x /opt/homebrew/Caskroom/claude-code@latest/2.1.283/claude ]]
++grep:7> [[ ! -x /opt/homebrew/Caskroom/claude-code@latest/2.1.283/claude ]]
++grep:8> [[ -n 5.9 ]]
++(eval):8> S=+(eval):8> grep -o 'legacy-[0-9a-f]*'
++grep:1> local _cc_a
++grep:2> _cc_a=-o
++grep:3> case -o (-*-filter* | -*-pager* | -*-view* | -*-format-open* | -*-config* | ---* | -@* | -*-save-config* | -[Zz]* | -[!-]*[Zz]* | --null | --null-data)
++grep:2> _cc_a=legacy-[0-9a-f]*
++grep:3> case legacy-[0-9a-f]* (-*-filter* | -*-pager* | -*-view* | -*-format-open* | -*-config* | ---* | -@* | -*-save-config* | -[Zz]* | -[!-]*[Zz]* | --null | --null-data)
++grep:5> local _cc_bin=/opt/homebrew/Caskroom/claude-code@latest/2.1.283/claude
++grep:6> [[ -x /opt/homebrew/Caskroom/claude-code@latest/2.1.283/claude ]]
++grep:7> [[ ! -x /opt/homebrew/Caskroom/claude-code@latest/2.1.283/claude ]]
++grep:8> [[ -n 5.9 ]]
++grep:9> ARGV0=ugrep ugrep -G --ignore-files --hidden -I '--exclude-dir=.git' '--exclude-dir=.svn' '--exclude-dir=.hg' '--exclude-dir=.bzr' '--exclude-dir=.jj' '--exclude-dir=.sl' -i daemon
++(eval):8> S=+(eval):8> head -1
++grep:9> ARGV0=ugrep ugrep -G --ignore-files --hidden -I '--exclude-dir=.git' '--exclude-dir=.svn' '--exclude-dir=.hg' '--exclude-dir=.bzr' '--exclude-dir=.jj' '--exclude-dir=.sl' -o 'legacy-[0-9a-f]*'
++(eval):8> S=legacy-9761b52ed306 
++(eval):8> bin/fm-log.sh mark legacy-9761b52ed306 archived
+fm-log: learnings/legacy-9761b52ed306.md is pinned and never ages or archives
++(eval):8> echo 'exit=1'
+exit=1
++(eval):8> bin/fm-log.sh stale
