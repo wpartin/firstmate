@@ -1,0 +1,38 @@
+== fm-log-contract-points
+ok - a brief for a task with history carries a bounded, path-free Relevant history
+ok - brief history carries only items keyed to the task, never the project alone
+ok - the brief updates the index before recalling the task's own history
+ok - add prints no RELATED for a project named alone
+ok - empty history or an off log leaves the brief unchanged
+ok - a task whose only recall row is its own open item gets no Relevant history
+ok - add stays silent when a title only resembles an entity name
+ok - add prints RELATED only when its entities resolve and the log is on
+exit 0
+== fm-log-prompt-hook
+ok - a prompt naming a configured ticket id injects the recall pack
+ok - the Pi and omp prompt handlers deliver the core's pack and add nothing when it prints nothing
+ok - text and codex modes print the same pack through the one core, and an unknown mode prints nothing
+ok - the commands Claude and Codex register on their prompt-submit hook deliver the core's pack
+ok - a prompt naming a task id or a registered person alias injects the pack
+ok - a prompt with no exact ticket, task, or person injects nothing
+ok - the log off injects nothing
+ok - an unbuilt or corrupt index and a failing or slow recall inject nothing and exit 0
+ok - harness-started turns and a crewmate worktree inject nothing
+exit 0
+== fm-log-recall
+ok - free terms match by stem and prefix, and a misspelled name resolves by trigrams
+ok - --since drops older rows by date or by days
+ok - the pack is bounded, newest first, with a more: count
+ok - an index kept by sync equals one rebuilt from scratch
+ok - config/log-redact applies before indexing
+ok - --for brief drops paths and private text and never fails its caller
+ok - --for captain keeps one cite per group
+ok - a failed index update leaves a marker that recall reports
+ok - recall and index exit 3 silently when the log is off
+ok - a 50k-record ledger answers an exact ticket in 117 ms
+ok - the entity export dates each entity by its newest touch across tasks
+ok - a learning filed against a ticket, project, or task comes back for them and fans out to their notes
+ok - a learning comes back for every task it names, and re-filing replaces stale sources
+ok - a task whose record carries a project path renders and recalls under the project name only
+ok - a sync that fails after the path repair loses no hand-written prose
+exit 0
