@@ -13,7 +13,7 @@ ok - --for brief drops paths and private text and never fails its caller
 ok - --for captain keeps one cite per group
 ok - a failed index update leaves a marker that recall reports
 ok - recall and index exit 3 silently when the log is off
-ok - a 50k-record ledger answers an exact ticket in 68 ms
+ok - a 50k-record ledger answers an exact ticket in 65 ms
 ok - the entity export dates each entity by its newest touch across tasks
 ok - a learning filed against a ticket, project, or task comes back for them and fans out to their notes
 ok - a learning comes back for every task it names, and re-filing replaces stale sources
