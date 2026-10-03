@@ -84,7 +84,9 @@ A task filed without the fields keeps the older behavior: tickets come from its 
 - **Learnings** are written with `bin/fm-log.sh learn <slug> <title>` (body on stdin), which also links them from the day note.
   `--task`, `--ticket`, and `--project` (each repeatable) name the work a learning came from: the note opens with `tasks`, `tickets`, `projects`, and `filed` frontmatter, each named ticket and project note gets a `<date time> Learned [[<slug>|<title>]]` line, and recall returns the learning for those tickets and projects and for the named tasks' own tickets and project, so it comes back in the next brief on the same work.
   Re-filing the same slug replaces its sources, so recall stops returning it for work the new frontmatter no longer names.
-  A learning filed this way can leave the always-loaded `data/learnings.md` under `/stow`'s offload rules; one filed without sources behaves as before.
+  The learning notes are the home's one learnings store: every note also carries `filed`, `status` (`in-force`, `aging`, or `archived`), `tier` (absent means `normal`; `pinned` never decays, `perishable` is stale after 7 days, `normal` after 30; `bin/fm-log.sh stale` lists the lapsed ones), and `reinforced` frontmatter, `bin/fm-log.sh mark` changes the status without touching the text (a pinned note stays in force, and `learn --status` refuses to age or archive it too), and the session-start digest prints only a bounded view of the notes in force (`bin/fm-log.sh learnings`).
+  Archived notes stay in the log and in recall.
+  The locked session start imports any legacy `data/learnings.md` and `data/memory-archive.md` entries once, as `legacy-<hash>` notes, and leaves those files untouched.
 
 At intake, `bin/fm-log.sh entities "<the captain's words>"` suggests configured ticket ids and listed names or aliases that appear verbatim in the words.
 It records nothing: firstmate decides whether to pass them as `--ticket` or `--people`.
