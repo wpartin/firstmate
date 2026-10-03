@@ -167,7 +167,7 @@ last_status_line() {  # <status-file> [<previous-event-var>]
 # 0 when <verb> is exactly one recognized status verb, with no leftover token.
 _fm_status_verb_recognized() {  # <verb>
   case "$1" in
-    working|needs-decision|blocked|done|failed|note|\
+    working|needs-decision|blocked|done|failed|note|learned|\
     "${FM_CLASSIFY_PAUSED_VERB:-$FM_CLASSIFY_PAUSED_VERB_DEFAULT}"|\
     "${FM_CLASSIFY_RESOLVE_VERB:-$FM_CLASSIFY_RESOLVE_VERB_DEFAULT}"|\
     "${FM_CLASSIFY_CAPTAIN_HELD_VERB:-$FM_CLASSIFY_CAPTAIN_HELD_VERB_DEFAULT}")
@@ -284,7 +284,7 @@ status_is_terminal_verb() {
 
 # 0 if the given (last) status line matches a captain-relevant verb.
 # Verb-aware by default: terminal verbs always match; nonterminal progress verbs
-# (working, resolved, captain-held) and paused never match from free-text prose;
+# (working, resolved, captain-held, learned) and paused never match from free-text prose;
 # only lines without those leading verbs may still match free-text tokens for
 # legacy bare lines such as "merged" or "PR ready".
 # Regex matching ignores any emission-time tag before the first colon - here and
@@ -296,7 +296,7 @@ status_is_captain_relevant() {
   [ -n "$line" ] || return 1
   status_line_verb "$line" verb
   case "$verb" in
-    working|resolved|captain-held|"${FM_CLASSIFY_PAUSED_VERB:-$FM_CLASSIFY_PAUSED_VERB_DEFAULT}")
+    working|resolved|captain-held|learned|"${FM_CLASSIFY_PAUSED_VERB:-$FM_CLASSIFY_PAUSED_VERB_DEFAULT}")
       return 1
       ;;
   esac
@@ -1212,6 +1212,29 @@ _fm_status_read_span() {  # <status-file> <start-offset> <byte-length>
   ' "$f" "$start" "$length"
 }
 
+# Automatic learnings seen by this fold, which reads each new status line once:
+# a worker's `learned: <fact>` line, and a `resolved` line closing a key the open
+# set holds as `blocked` (the blocker plus how it cleared). bin/fm-auto-learn.sh
+# owns filing and dedupe, so a full re-fold replaying old lines files nothing new.
+_fm_auto_learn_line() {  # <status-file> <open-set> <line> <resolve-verb>
+  local f=$1 open=$2 line=$3 resolve=$4 verb key row task
+  case "$line" in learned*:*|"$resolve"*:*) ;; *) return 0 ;; esac
+  status_line_verb "$line" verb
+  task=$(basename "$f"); task=${task%.status}
+  case "$verb" in
+    learned)
+      "$_FM_CLASSIFY_LIB_DIR/fm-auto-learn.sh" "$(dirname "$f")" "$task" learned \
+        "$(status_line_note "$line")" "$(status_line_note "$line")" "" >/dev/null 2>&1 ;;
+    "$resolve")
+      key=$(_fm_decision_key "$line") || return 0
+      row=$(printf '%s\n' "$open" | awk -F '\t' -v k="$key" '$1 == k && $2 == "blocked" { print $3; exit }')
+      [ -n "$row" ] || return 0
+      "$_FM_CLASSIFY_LIB_DIR/fm-auto-learn.sh" "$(dirname "$f")" "$task" blocker \
+        "$task:$key:$row" "Blocked: $row" "$(status_line_note "$line")" >/dev/null 2>&1 ;;
+  esac
+  return 0
+}
+
 status_open_decisions_incremental() {  # <status-file> [<captured-end-offset>]
   local f=$1 captured_end=${2:-} cf offset ident open='' trusted_open='' cursor_data first rest offset_line ident_line
   local version='' size actual_size cur_ident resolve held chunk_file chunk_size line cursor_dirty=0
@@ -1308,6 +1331,7 @@ status_open_decisions_incremental() {  # <status-file> [<captured-end-offset>]
     resolve=${FM_CLASSIFY_RESOLVE_VERB:-$FM_CLASSIFY_RESOLVE_VERB_DEFAULT}
     held=${FM_CLASSIFY_CAPTAIN_HELD_VERB:-$FM_CLASSIFY_CAPTAIN_HELD_VERB_DEFAULT}
     while IFS= read -r line || [ -n "$line" ]; do
+      _fm_auto_learn_line "$f" "$open" "$line" "$resolve"
       open=$(_fm_decision_fold_line "$open" "$line" "$resolve" "$held" "$kind")
     done < "$chunk_file"
     rm -f "$chunk_file"

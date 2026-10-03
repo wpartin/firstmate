@@ -3462,6 +3462,23 @@ if teardown_owns_worktree && [ -d "$WT" ] && [ "$FORCE" != "--force" ]; then
   fi
 fi
 
+# A landed ship's pipeline fix commits become automatic learnings (bin/fm-auto-learn.sh).
+if [ "$KIND" = ship ] && [ "$FORCE" != "--force" ] && [ -d "$WT" ]; then
+  auto_learn_base=$(default_branch 2>/dev/null) || auto_learn_base=''
+  if [ -n "$auto_learn_base" ]; then
+    git -C "$WT" rev-parse --quiet --verify "refs/remotes/origin/$auto_learn_base" >/dev/null 2>&1 \
+      && auto_learn_base="origin/$auto_learn_base"
+    if git -C "$WT" merge-base --is-ancestor HEAD "$auto_learn_base" 2>/dev/null; then
+      for auto_learn_tip in $(git -C "$WT" rev-list --first-parent "$auto_learn_base" 2>/dev/null); do
+        git -C "$WT" merge-base --is-ancestor HEAD "$auto_learn_tip^1" 2>/dev/null && continue
+        auto_learn_base="$auto_learn_tip^1"
+        break
+      done
+    fi
+    "$SCRIPT_DIR/fm-auto-learn.sh" --nm-fixes "$STATE" "$ID" "$WT" "$auto_learn_base" >/dev/null 2>&1 || true
+  fi
+fi
+
 # A Herdr close may reposition shared workspace order, so the whole
 # destructive sequence below (worktree return, pane close, record removal)
 # runs under the named-session presentation lock, acquired BEFORE anything is
