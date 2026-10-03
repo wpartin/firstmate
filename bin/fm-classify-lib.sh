@@ -1212,26 +1212,17 @@ _fm_status_read_span() {  # <status-file> <start-offset> <byte-length>
   ' "$f" "$start" "$length"
 }
 
-# Automatic learnings seen by this fold, which reads each new status line once:
-# a worker's `learned: <fact>` line, and a `resolved` line closing a key the open
-# set holds as `blocked` (the blocker plus how it cleared). bin/fm-auto-learn.sh
-# owns filing and dedupe, so a full re-fold replaying old lines files nothing new.
-_fm_auto_learn_line() {  # <status-file> <open-set> <line> <resolve-verb>
-  local f=$1 open=$2 line=$3 resolve=$4 verb key row task
-  case "$line" in learned*:*|"$resolve"*:*) ;; *) return 0 ;; esac
+# A worker's `learned: <fact>` line is filed as a learning by this fold, which reads
+# each new status line once. bin/fm-auto-learn.sh owns filing and dedupe, so a full
+# re-fold replaying old lines files nothing new.
+_fm_auto_learn_line() {  # <status-file> <line>
+  local f=$1 line=$2 verb task
+  case "$line" in learned*:*) ;; *) return 0 ;; esac
   status_line_verb "$line" verb
+  [ "$verb" = learned ] || return 0
   task=$(basename "$f"); task=${task%.status}
-  case "$verb" in
-    learned)
-      "$_FM_CLASSIFY_LIB_DIR/fm-auto-learn.sh" "$(dirname "$f")" "$task" learned \
-        "$(status_line_note "$line")" "$(status_line_note "$line")" "" >/dev/null 2>&1 ;;
-    "$resolve")
-      key=$(_fm_decision_key "$line") || return 0
-      row=$(printf '%s\n' "$open" | awk -F '\t' -v k="$key" '$1 == k && $2 == "blocked" { print $3; exit }')
-      [ -n "$row" ] || return 0
-      "$_FM_CLASSIFY_LIB_DIR/fm-auto-learn.sh" "$(dirname "$f")" "$task" blocker \
-        "$task:$key:$row" "Blocked: $row" "$(status_line_note "$line")" >/dev/null 2>&1 ;;
-  esac
+  "$_FM_CLASSIFY_LIB_DIR/fm-auto-learn.sh" "$(dirname "$f")" "$task" learned \
+    "$(status_line_note "$line")" "$(status_line_note "$line")" "" >/dev/null 2>&1
   return 0
 }
 
@@ -1331,7 +1322,7 @@ status_open_decisions_incremental() {  # <status-file> [<captured-end-offset>]
     resolve=${FM_CLASSIFY_RESOLVE_VERB:-$FM_CLASSIFY_RESOLVE_VERB_DEFAULT}
     held=${FM_CLASSIFY_CAPTAIN_HELD_VERB:-$FM_CLASSIFY_CAPTAIN_HELD_VERB_DEFAULT}
     while IFS= read -r line || [ -n "$line" ]; do
-      _fm_auto_learn_line "$f" "$open" "$line" "$resolve"
+      _fm_auto_learn_line "$f" "$line"
       open=$(_fm_decision_fold_line "$open" "$line" "$resolve" "$held" "$kind")
     done < "$chunk_file"
     rm -f "$chunk_file"

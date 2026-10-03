@@ -2,24 +2,9 @@
 # fm-auto-learn.sh - file one automatic learning into the captain's log.
 #
 # Usage: fm-auto-learn.sh <state-dir> <task> <source> <key> <fact> [<correction>]
-#        fm-auto-learn.sh --nm-fixes <state-dir> <task> <worktree> <base-ref>
-#        fm-auto-learn.sh --ci-fixes <state-dir> <task> <owner/repo> <pr-number>
 #
-# --nm-fixes files one nm-finding learning per `no-mistakes(review|test|lint): <subject>`
-# commit in <base-ref>..HEAD of <worktree>: the pipeline's fix commit for a finding
-# it raised. `no-mistakes axi status` reports only finding counts, so the fix
-# commit's subject is the recorded finding and its correction.
-# --ci-fixes reads the PR's commits and each commit's check runs through `gh api`
-# and files one ci-fix learning per check that concluded failure on a commit and
-# success on a later one, naming the first commit where it passed.
-#
-# Called by the script that already sees a corrected belief, never by an agent:
-#   nm-finding        a no-mistakes finding its pipeline fixed (fm-teardown.sh)
-#   ci-fix            a CI check that failed and later passed on one PR (fm-pr-check.sh)
-#   blocker           a `resolved` line closing a `blocked` key (fm-classify-lib.sh)
-#   captain-override  a captain answer choosing another option than the
-#                     recommendation the hold's reason named (fm-captain-hold.sh)
-#   learned           a worker's `learned [at=<epoch>]: <fact>` line (fm-classify-lib.sh)
+# The only source is `learned`: a worker's deliberate `learned [at=<epoch>]: <fact>`
+# line, seen by fm-classify-lib.sh, never an agent calling this script directly.
 #
 # <key> identifies the correction; the note is learnings/auto-<source>-<hash of
 # source and key>.md, filed through `fm-log.sh learn --auto`, so the same
@@ -36,50 +21,9 @@
 set -u
 
 [ "${FM_AUTO_LEARN:-on}" != off ] || exit 0
-SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
-
-case "${1:-}" in
-  --nm-fixes)
-    [ "$#" -eq 5 ] || exit 0
-    git -C "$4" log --reverse --format=%s "$5..HEAD" 2>/dev/null | while IFS= read -r subject; do
-      case "$subject" in
-        'no-mistakes(review): '*|'no-mistakes(test): '*|'no-mistakes(lint): '*)
-          step=${subject#no-mistakes(}; step=${step%%)*}
-          "$SELF" "$2" "$3" nm-finding "$3:$subject" \
-            "no-mistakes $step found the first draft wrong: ${subject#*: }" "fix commit: $subject" ;;
-      esac
-    done
-    exit 0 ;;
-  --ci-fixes)
-    [ "$#" -eq 5 ] || exit 0
-    command -v gh >/dev/null 2>&1 || exit 0
-    failing=$'\n'
-    while IFS=$'\t' read -r sha subject; do
-      [ -n "$sha" ] || continue
-      runs=$(gh api "repos/$4/commits/$sha/check-runs?per_page=100" \
-        --jq '.check_runs | group_by(.name) | map(max_by(.id))[] | [.conclusion // "", .name] | @tsv' 2>/dev/null) || continue
-      while IFS=$'\t' read -r conclusion name; do
-        [ -n "$name" ] || continue
-        case "$conclusion" in
-          failure|timed_out)
-            case "$failing" in *$'\n'"$name"$'\n'*) ;; *) failing="$failing$name"$'\n' ;; esac ;;
-          success)
-            case "$failing" in
-              *$'\n'"$name"$'\n'*)
-                failing=${failing/$'\n'"$name"$'\n'/$'\n'}
-                "$SELF" "$2" "$3" ci-fix "$4#$5:$name:$sha" \
-                  "CI check $name failed on $4 PR $5 until a later commit fixed it" "fixed by: $subject" ;;
-            esac ;;
-        esac
-      done <<< "$runs"
-    done < <(gh api "repos/$4/pulls/$5/commits?per_page=100" \
-      --jq '.[] | [.sha, (.commit.message | split("\n")[0])] | @tsv' 2>/dev/null)
-    exit 0 ;;
-esac
-
 [ "$#" -ge 5 ] && [ "$#" -le 6 ] || exit 0
 state=$1 task=$2 source=$3 key=$4 fact=$5 correction=${6:-}
-case "$source" in nm-finding|ci-fix|blocker|captain-override|learned) ;; *) exit 0 ;; esac
+case "$source" in learned) ;; *) exit 0 ;; esac
 case "$task" in ''|.*|*[!A-Za-z0-9._-]*) exit 0 ;; esac
 [ -d "$state" ] || exit 0
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
