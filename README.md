@@ -189,6 +189,11 @@ Claude and grok use the slash form shown here; codex uses the same names with `$
 | `/bearings`        | Generate a concise four-section chat digest from bounded fleet state, including registered remote-home ledgers and measured follow-up for owned contributions; use `/bearings file` to also replace today's dated report in `data/`, and add `include PRs` for live GitHub enrichment |
 | `/updatefirstmate` | Guardedly update the running firstmate and its secondmates - fast-forward, or reconcile a redundant post-squash-merge divergence - then persist and restart every live mate successfully left on the target commit - including already-current homes - with an honest re-read nudge only when restart cannot be proven |
 | `/stow`            | Sweep the session for uncaptured durable knowledge, persist the open work records this session knows are unfiled or now wrong, curate tiered startup memory with decay and cold archival, enforce each home's budget or surface the required decision, cascade to registered second mates, and report what is safe to reset |
+| `/align`           | Before work starts, run a short interview that ends with a one-paragraph shared statement you approve; it stops at agreement |
+| `/spec`            | Turn the agreed statement into a short durable spec at `data/<id>/spec.md`: goal, user stories, out of scope, and acceptance checks that feed review |
+| `/slice`           | Cut a spec into backlog tickets with blocking relationships |
+| `/sketch`          | Put a throwaway prototype or mock in front of you to react to before building, keeping reusable assets for the implementation |
+| `/qa-plan`         | When work is ready, give you a short checklist of exactly what to click or run and what you should see; it verifies finished work, unlike `/align`, which agrees intent beforehand |
 
 Bearings invocation examples:
 
