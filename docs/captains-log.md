@@ -126,9 +126,24 @@ Firstmate sees relevant history at the moments it acts, without having to rememb
 - **Bearings:** `bin/fm-log.sh export --entities --json` gives each task's tickets, project, and people with the date each was last touched across all work; the Bearings board shows them as small chips on each row, and the `/bearings` chat digest adds them to the end of Captain's Call and Underway lines.
   An absent or failing export only means no chips.
 - **Questions about the past and bug scoping:** the `captains-log` and `diagnostic-reasoning` skills run recall before answering or diagnosing.
-- **The captain's message (Claude primaries):** a `UserPromptSubmit` hook, `bin/fm-log-prompt-hook.sh`, runs `bin/fm-log.sh recall --mentions <message> --for captain` and adds the pack to the turn only when the message names an exact configured ticket id, a logged task id, or a `config/log-people` name or alias.
+- **The captain's message:** `bin/fm-log-prompt-hook.sh` runs `bin/fm-log.sh recall --mentions <message> --for captain` and adds the pack to the turn only when the message names an exact configured ticket id, a logged task id, or a `config/log-people` name or alias.
   A message naming none of those adds nothing, and so do the log being off, an empty or unreadable index, a failing recall, and a recall slower than its 3-second bound; the prompt is never blocked.
-  Other harnesses' prompt hooks are later work; there the `captains-log` skill trigger carries the same questions.
+  That one script is the core for every harness, and each wiring only carries the message in and the pack out:
+
+  | Primary harness | Wiring | Status |
+  | --- | --- | --- |
+  | Claude | `UserPromptSubmit` hook in `.claude/settings.json` | Wired |
+  | Codex | `UserPromptSubmit` hook in `.codex/hooks.json`, behind Codex's hook-trust review | Wired |
+  | Pi, pi-signed | `before_agent_start` in `.pi/extensions/fm-primary-turnend-guard.ts`, returned as a hidden context message | Wired |
+  | omp | `before_agent_start` in `.omp/extensions/fm-primary-turnend-guard.ts`, as Pi | Wired |
+  | Cursor | `beforeSubmitPrompt` can only allow or block the prompt, not add context | Unsupported |
+  | Grok | its hooks cannot carry hook output into model context (the nudge tier in [`sessionstart-nudge.md`](sessionstart-nudge.md)) | Unsupported |
+  | OpenCode | no verified prompt-time context channel in the tracked plugins | Unsupported |
+  | Kimi | not wired as a primary hook surface | Unsupported |
+
+  On an unsupported harness the `captains-log` skill trigger carries the same questions.
+  Claude is live-verified; Codex, Pi, pi-signed, and omp are verified only by the portable `tests/fm-log-prompt-hook.test.sh` until `tests/fm-log-prompt-hook-live-e2e.test.sh` runs where they are installed.
+  The portable test pins the core and every wiring's handler, and the live guard proves each installed wired harness end to end ([`verification/runtime-backends.md`](verification/runtime-backends.md) "Captain's log prompt history").
 
 ## When it renders
 
