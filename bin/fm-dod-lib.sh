@@ -566,6 +566,14 @@ RULES_EOF
   if [ -n "$scope" ]; then
     echo "The comment check measures $scope; a file outside that list is still yours to keep to one line."
   fi
+  echo
+  cat <<'RULES_EOF'
+# Working rules - test first
+Where the change has an executable contract, build it test first: write one failing test for the next behavior, make it pass with the smallest change, then tidy before the next test.
+Test behavior through the public interface the user or caller sees, not internal structure, so the tests survive refactoring.
+For a bug, the first test reproduces it and fails before the fix.
+Skip this loop for prose, configuration, and pure wiring with no behavior to assert, rather than inventing tests.
+RULES_EOF
   return 0
 }
 

@@ -117,6 +117,10 @@
       "audience": "agent-runtime"
     },
     {
+      "path": ".agents/skills/align/SKILL.md",
+      "audience": "agent-runtime"
+    },
+    {
       "path": ".agents/skills/ask-user-authority/SKILL.md",
       "audience": "agent-runtime"
     },
@@ -241,6 +245,10 @@
       "audience": "agent-runtime"
     },
     {
+      "path": ".agents/skills/qa-plan/SKILL.md",
+      "audience": "agent-runtime"
+    },
+    {
       "path": ".agents/skills/quiet/SKILL.md",
       "audience": "agent-runtime"
     },
@@ -250,6 +258,18 @@
     },
     {
       "path": ".agents/skills/secondmate-provisioning/SKILL.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": ".agents/skills/sketch/SKILL.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": ".agents/skills/slice/SKILL.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": ".agents/skills/spec/SKILL.md",
       "audience": "agent-runtime"
     },
     {
