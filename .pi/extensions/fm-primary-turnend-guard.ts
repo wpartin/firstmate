@@ -446,6 +446,42 @@ async function claimSessionstartMessage(
   return sessionstartMessage(generation, result);
 }
 
+// Exact-mention captain's log history for a captain prompt (bin/fm-log-prompt-hook.sh text); resolves "" on any error or past its bound.
+function runLogRecall(prompt: unknown): Promise<string> {
+  if (typeof prompt !== "string" || !prompt) return Promise.resolve("");
+  return new Promise((resolveResult) => {
+    const invocation = firstmateShellInvocation(`${root}/bin/fm-log-prompt-hook.sh`, ["text"]);
+    let child: ChildProcess;
+    try {
+      child = spawn(invocation.command, invocation.args, { stdio: ["pipe", "pipe", "ignore"] });
+    } catch {
+      resolveResult("");
+      return;
+    }
+    let out = "";
+    let settled = false;
+    const finish = (text: string) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolveResult(text);
+    };
+    const timer = setTimeout(() => {
+      try {
+        child.kill();
+      } catch {}
+      finish("");
+    }, 5000);
+    child.stdout?.on("data", (chunk) => {
+      out += chunk.toString();
+    });
+    child.on("error", () => finish(""));
+    child.on("close", (code) => finish(code === 0 ? out.trim() : ""));
+    child.stdin?.on("error", () => {});
+    child.stdin?.end(prompt);
+  });
+}
+
 function runGuard(): Promise<{ code: number; stderr: string }> {
   return new Promise((resolveResult) => {
     const invocation = firstmateShellInvocation(`${root}/bin/fm-turnend-guard.sh`, []);
@@ -554,11 +590,16 @@ export default function (pi: ExtensionAPI) {
     );
   });
 
-  pi.on?.("before_agent_start", async (_event, ctx) => {
+  // One handler carries both the session-start digest and the log recall, so a first prompt gets both in one message.
+  pi.on?.("before_agent_start", async (event, ctx) => {
     const generation = sessionstartGeneration;
-    if (!generation) return;
-    const message = await claimSessionstartMessage(generation, ctx);
-    return message ? { message } : undefined;
+    const [message, recall] = await Promise.all([
+      generation ? claimSessionstartMessage(generation, ctx) : Promise.resolve(undefined),
+      runLogRecall((event as { prompt?: unknown } | undefined)?.prompt),
+    ]);
+    if (message) return { message: recall ? { ...message, content: `${message.content}\n\n${recall}` } : message };
+    if (!recall) return undefined;
+    return { message: { customType: "firstmate-log-recall", content: recall, display: false, details: { kind: "log-recall" } } };
   });
 
   // Pi's compaction equivalent. Manual compaction is idle and auto-compaction
