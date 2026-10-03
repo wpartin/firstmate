@@ -892,11 +892,11 @@ LEARNING_STATUSES = ("in-force", "aging", "archived")
 LEARNING_TIERS = {"pinned": None, "perishable": 7, "normal": 30}
 
 
-def learning_head(sources, filed, status, reinforced, tier):
+def learning_head(sources, filed, status, reinforced, tier, origin=None):
     """The frontmatter block every learning note opens with."""
     head = ["---"] + (["%s: %s" % (k, json.dumps(sources[k])) for k in SOURCE_KEYS] if any(sources.values()) else [])
     head += ["filed: %s" % filed, "status: %s" % status] + (["tier: %s" % tier] if tier != "normal" else [])
-    head += ["reinforced: %s" % reinforced, "---"]
+    head += ["reinforced: %s" % reinforced] + (["origin: %s" % origin] if origin == "auto" else []) + ["---"]
     return "\n".join(head) + "\n"
 
 
@@ -912,22 +912,26 @@ def learning_status(fields):
     return status if status in LEARNING_STATUSES else "in-force"
 
 
-def write_learning(root, cfg, slug, title, body, sources, today, status=None, reinforced=None, tier=None):
-    """Write learnings/<slug>.md whole, keeping its filed date and, unless given, its status and tier."""
+def write_learning(root, cfg, slug, title, body, sources, today, status=None, reinforced=None, tier=None, origin=None):
+    """Write learnings/<slug>.md whole, keeping its filed date and, unless given, its status, tier, and origin."""
     path = os.path.join(root, "learnings", safe_name(slug) + ".md")
     fields = split_frontmatter(read(path) or "")[0]
     status = status or learning_status(fields)
     text = "# %s\n\n%s" % (title.strip(), body if body.endswith("\n") or not body else body + "\n")
     tier = tier or learning_tier(fields)
-    text = learning_head(sources, fields.get("filed") or today, status, reinforced or today, tier) + text
+    text = learning_head(sources, fields.get("filed") or today, status, reinforced or today, tier,
+                         origin or fields.get("origin")) + text
     if read(path) != text:
         write_atomic(path, text)
     return path
 
 
 def cmd_learn(args):
-    root, config_dir, slug, title, sources_json, status, tier, today = args
+    root, config_dir, slug, title, sources_json, status, tier, origin, today = args
     body = sys.stdin.read()
+    if origin == "auto" and os.path.exists(os.path.join(root, "learnings", safe_name(slug) + ".md")):
+        # An automatic learning is keyed by the correction it records, so the same correction never files twice.
+        return 10
     try:
         raw = json.loads(sources_json) if sources_json else None
     except ValueError:
@@ -937,7 +941,9 @@ def cmd_learn(args):
     if (tier or learning_tier(old)) == "pinned" and status and status != "in-force":
         sys.stderr.write("fm-log: learnings/%s.md is pinned and never ages or archives\n" % safe_name(slug))
         return 1
-    print(write_learning(root, None, slug, title, body, sources, today, status or None, None, tier or None))
+    print(write_learning(root, None, slug, title, body, sources, today, status or None, None, tier or None,
+                         origin or None))
+    return 0
 
 
 def cmd_mark(args):
@@ -953,7 +959,8 @@ def cmd_mark(args):
         return 1
     sources = learning_sources(fields, Config(config_dir))
     reinforced = today if reinforce == "1" else str(fields.get("reinforced") or fields.get("filed") or today)
-    new = learning_head(sources, fields.get("filed") or today, status, reinforced, learning_tier(fields)) + rest.lstrip("\n")
+    new = learning_head(sources, fields.get("filed") or today, status, reinforced, learning_tier(fields),
+                        fields.get("origin")) + rest.lstrip("\n")
     if new != text:
         write_atomic(path, new)
     print(path)
@@ -986,8 +993,9 @@ def cmd_learnings(args):
         if learning_status(fields) not in wanted:
             continue
         text = body if body.startswith(title) else ("%s: %s" % (title, body) if body else title)
-        entries.append("- %s [learnings/%s.md, reinforced %s]\n" % (
-            text, slug, fields.get("reinforced") or fields.get("filed") or "unknown"))
+        entries.append("- %s [learnings/%s.md, reinforced %s%s]\n" % (
+            text, slug, fields.get("reinforced") or fields.get("filed") or "unknown",
+            ", auto" if fields.get("origin") == "auto" else ""))
     more = "more: %d learnings not shown (fm-log.sh recall to find them)\n"
     size = lambda t: len(t.encode("utf-8"))
     if limit is not None and sum(size(e) for e in entries) > limit:
@@ -2139,7 +2147,7 @@ def main(argv):
     if len(argv) >= 2 and argv[1] == "recall":
         return cmd_recall(argv[2:])
     cmds = {"sync": (cmd_sync, 8), "add": (cmd_add, 6), "ticket": (cmd_ticket, 4),
-            "learn": (cmd_learn, 8), "mark": (cmd_mark, 6), "learnings": (cmd_learnings, 3), "stale": (cmd_stale, 2),
+            "learn": (cmd_learn, 9), "mark": (cmd_mark, 6), "learnings": (cmd_learnings, 3), "stale": (cmd_stale, 2),
             "import-legacy": (cmd_import, 3), "unresolved": (cmd_unresolved, 1), "index": (cmd_index, 7),
             "entities": (cmd_entities, 2), "export": (cmd_export, 2)}
     if len(argv) < 2 or argv[1] not in cmds or len(argv) - 2 != cmds[argv[1]][1]:
