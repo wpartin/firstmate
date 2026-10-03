@@ -21,6 +21,7 @@ Rules it keeps:
     link and comment syntax, kept whole, and only terminal or decision states are
     rendered. Worker report bodies are never copied.
   - Every file is written through a temporary file and a rename.
+  - A project is named by its basename, never a local path.
 """
 import datetime
 import hashlib
@@ -41,6 +42,8 @@ REPAIR_VERSION = "1"
 REPAIR_CLEAN_CAPS = (90, 200)
 REPAIR_TRUNC_CAPS = (70, 90, 120, 160)
 DONE_SHOWN = 12
+# Bump to rerun the one-time merge of path-named project notes and chips into their basename.
+PATH_REPAIR_VERSION = "1"
 
 
 def write_atomic(path, text):
@@ -128,6 +131,12 @@ class Config:
         return out
 
 
+def project_name(value):
+    """A project's name: a path-like value names its basename, so a local path never becomes a project."""
+    value = value.strip() if isinstance(value, str) else ""
+    return os.path.basename(value.rstrip("/")) if "/" in value else value
+
+
 def clean(text, cfg):
     """Untrusted text flattened to one safe Markdown line, kept whole: the log is a durable record."""
     text = re.sub(r"\s+", " ", text or "").strip()
@@ -152,6 +161,7 @@ class Log:
         self.rows = {r["id"]: r for r in self.snapshot.get("queue", []) or []}
         self.inflight = {r["id"]: r for r in self.snapshot.get("in_flight", []) or []}
         self.files = {}
+        self.removals = []
         self.carry_limit = carry_limit
         self._disk_paths = None
 
@@ -174,6 +184,10 @@ class Log:
                 text += "\n"
             if read(path) != text:
                 write_atomic(path, text)
+        for path in self.removals:
+            if os.path.exists(path):
+                os.remove(path)
+        self.removals = []
 
     def has_anchor(self, path, aid):
         lines = self.load(path)
@@ -328,7 +342,7 @@ class Log:
         """(project, tickets, people, inferred): the dispatch record's fields, then the backlog row's, then a title match."""
         known = self.known.get(task) or {}
         row = self.rows.get(task) or {}
-        project = known.get("project") or row.get("repo") or ""
+        project = project_name(known.get("project") or row.get("repo") or "")
         tickets = []
         for tid in list(known.get("tickets") or []) + list(row.get("tickets") or []):
             tid = clean(tid, self.cfg).upper()
@@ -589,6 +603,68 @@ class Log:
                 if changed:
                     self.store(path, lines)
 
+    def repair_paths(self, ledger):
+        """Merge notes and chips an older renderer named after a project's local path into its basename."""
+        values = [f.get("project") for f in self.known.values() if isinstance(f, dict)]
+        if ledger and os.path.isfile(ledger):
+            with open(ledger, "rb") as fh:
+                for line in fh:
+                    try:
+                        rec = json.loads(line.decode("utf-8"))
+                    except (ValueError, UnicodeDecodeError):
+                        continue
+                    if isinstance(rec, dict) and rec.get("event") == "task.dispatched":
+                        values.append(rec.get("project"))
+        renames = {}
+        for value in values:
+            if isinstance(value, str) and "/" in value and project_name(value):
+                renames[safe_name(value)] = safe_name(project_name(value))
+        for fields in self.known.values():
+            if isinstance(fields, dict) and isinstance(fields.get("project"), str):
+                fields["project"] = project_name(fields["project"])
+        if not renames:
+            return
+        folder = os.path.join(self.root, "projects")
+        for old, new in renames.items():
+            old_lines = self.load(os.path.join(folder, old + ".md"))
+            if old_lines is None:
+                continue
+            path = os.path.join(folder, new + ".md")
+            lines = self.load(path) or ["# " + new, ""]
+            body = old_lines[1:] if old_lines and old_lines[0].startswith("# ") else old_lines
+            body = [line for line in body if not (line.startswith("- ") and FM_ANCHOR.findall(line)
+                                                  and self.has_anchor(path, FM_ANCHOR.findall(line)[0]))]
+            while body and body[0] == "":
+                body.pop(0)
+            while body and body[-1] == "":
+                body.pop()
+            if body:
+                while lines and lines[-1] == "":
+                    lines.pop()
+                if lines and not (lines[-1].startswith("- ") and body[0].startswith("- ")):
+                    lines.append("")
+                lines += body + [""]
+            self.store(path, lines)
+            self.files.pop(os.path.join(folder, old + ".md"), None)
+            self.removals.append(os.path.join(folder, old + ".md"))
+        chips = {"[[%s]]" % old: "[[%s]]" % new for old, new in renames.items()}
+        for top, dirs, files in os.walk(self.root):
+            dirs[:] = [d for d in dirs if d != "attachments" and not d.startswith(".")]
+            for name in files:
+                path = os.path.join(top, name)
+                if path in self.removals:
+                    continue
+                if not name.endswith(".md") or (path not in self.files and "[[" not in (read(path) or "")):
+                    continue
+                lines = self.load(path) or []
+                fixed = list(lines)
+                for n, line in enumerate(fixed):
+                    for old, new in chips.items():
+                        line = line.replace(old, new)
+                    fixed[n] = line
+                if fixed != lines:
+                    self.store(path, fixed)
+
     # ---- computed views ---------------------------------------------------
     def open_items(self):
         rows = list(self.rows.values())
@@ -719,6 +795,9 @@ def cmd_sync(args):
         new_offset = offset + len(complete)
     repair_path = os.path.join(os.path.dirname(cursor_path), ".log-repair")
     has_fleet = snapshot is not None and snapshot.get("queue") is not None
+    path_repair = os.path.join(os.path.dirname(cursor_path), ".log-repair-paths")
+    if (read(path_repair) or "").strip() != PATH_REPAIR_VERSION:
+        log.repair_paths(ledger)
     if has_fleet and (read(repair_path) or "").strip() != REPAIR_VERSION:
         log.repair(ledger)
         write_atomic(repair_path, REPAIR_VERSION + "\n")
@@ -736,6 +815,8 @@ def cmd_sync(args):
             write_atomic(queue_path, "\n".join(lines))
     log.flush()
     write_atomic(known_path, json.dumps(log.known, sort_keys=True) + "\n")
+    if (read(path_repair) or "").strip() != PATH_REPAIR_VERSION:
+        write_atomic(path_repair, PATH_REPAIR_VERSION + "\n")
     # The cursor advances only after every file is written, so a crash replays.
     tmp = cursor_path + ".tmp"
     with open(tmp, "w") as fh:
@@ -782,7 +863,7 @@ def learning_sources(value, cfg):
         return out
     for key in SOURCE_KEYS:
         for name in value.get(key) if isinstance(value.get(key), list) else []:
-            name = clean(name, cfg) if isinstance(name, str) else ""
+            name = clean(project_name(name) if key == "projects" else name, cfg) if isinstance(name, str) else ""
             name = name.upper() if key == "tickets" else name
             if name and name not in out[key]:
                 out[key].append(name)
@@ -849,7 +930,7 @@ def cmd_unresolved(args):
 
 # ---- recall index: derived and disposable, `index --rebuild` recreates it ----
 
-INDEX_SCHEMA = "4"
+INDEX_SCHEMA = "5"
 # A ticket matched only from a task title or id counts for less than one filed in its ticket: field.
 INFERRED_WEIGHT = 0.5
 GROUP_WEIGHT = {"decision": 5.0, "learning": 4.0, "outcome": 3.0, "report": 3.0, "timeline": 1.0}
@@ -961,13 +1042,15 @@ class Indexer:
         rel = os.path.relpath(self.days.day_path(day), self.root).replace(os.sep, "/")
         return "%s#fm:%s" % (rel, anchor)
 
-    def task_seen(self, task, project=None):
+    def task_seen(self, task, project=None, keep=False):
+        """Record a task; keep leaves a project already known from the ledger in place."""
         if not task:
             return
         self.conn.execute("INSERT OR IGNORE INTO tasks(task,title,project,people,tickets) VALUES(?,?,?,?,?)",
                           (task, "", "", "", ""))
         if project:
-            self.conn.execute("UPDATE tasks SET project=? WHERE task=?", (project, task))
+            self.conn.execute("UPDATE tasks SET project=? WHERE task=?" + (" AND project=''" if keep else ""),
+                              (project, task))
 
     def task_fields(self, task, tickets, people):
         """Merge structured ticket ids and canonical people into a task's entity fields."""
@@ -1017,7 +1100,7 @@ class Indexer:
         if self.conn.execute("SELECT 1 FROM rows WHERE uid=?", (eid,)).fetchone():
             return
         if event == "task.dispatched":
-            project = c(rec.get("project"))
+            project = c(project_name(rec.get("project")))
             self.task_seen(task, project)
             if task:
                 self.task_fields(task, rec.get("tickets") if isinstance(rec.get("tickets"), list) else [],
@@ -1234,13 +1317,13 @@ class Indexer:
             task = str(r.get("id") or "")
             if not task:
                 continue
-            self.task_seen(task, clean(r.get("repo"), self.cfg))
+            self.task_seen(task, clean(project_name(r.get("repo")), self.cfg), keep=True)
             self.conn.execute("UPDATE tasks SET title=? WHERE task=?", (clean(r.get("title"), self.cfg), task))
             self.task_fields(task, r.get("tickets"), r.get("people"))
         for r in snapshot.get("in_flight") or []:
             task = str(r.get("id") or "")
             if task:
-                self.task_seen(task, clean(r.get("repo"), self.cfg))
+                self.task_seen(task, clean(project_name(r.get("repo")), self.cfg), keep=True)
                 self.conn.execute("UPDATE tasks SET title=? WHERE task=? AND title=''",
                                   (clean(r.get("name_full") or r.get("name"), self.cfg), task))
         if snapshot.get("queue") is None:

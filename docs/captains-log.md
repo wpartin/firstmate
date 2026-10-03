@@ -90,6 +90,7 @@ At intake, `bin/fm-log.sh entities "<the captain's words>"` suggests configured 
 It records nothing: firstmate decides whether to pass them as `--ticket` or `--people`.
 
 `config/log-redact` optionally lists regular expressions, one per line, whose matches are replaced with `[redacted]` before anything is written.
+A project is always named by its basename, so a task whose record carries a local project path files under the project's name, and the first sync after this rule arrived merges any older path-named project note and link into it.
 
 ## Recall
 
@@ -117,9 +118,9 @@ The form given to workers (`--for brief`) carries no note paths and no inbox-not
 
 Firstmate sees relevant history at the moments it acts, without having to remember to look.
 
-- **Worker instructions:** `bin/fm-brief.sh` recalls the task's tickets, people, project, and id in the worker form and writes at most 15 lines under `## Relevant history`, after `## Firstmate spec` and labelled as firstmate-supplied context, never as the captain's intent.
+- **Worker instructions:** `bin/fm-brief.sh` first brings the index up to date (waiting at most ten seconds for the log lock), then recalls only what shares a key with the task - its id, a ticket, or a person, never the project alone - in the worker form and writes at most 15 lines under `## Relevant history`, after `## Firstmate spec` and labelled as firstmate-supplied context, never as the captain's intent.
   Nothing is written when the history is empty, the log is off, or recall fails, and the scaffold never fails because of it.
-- **Filing work:** after a successful `bin/fm-tasks-axi.sh add`, a `RELATED:` pack follows when the item has a ticket or person field or its title names a known ticket, person, or project; it is silent otherwise, when the log is off, and with `--json`.
+- **Filing work:** after a successful `bin/fm-tasks-axi.sh add`, a `RELATED:` pack follows when the item has a ticket or person field or its title names a known ticket or person, never a project alone; it is silent otherwise, when the log is off, and with `--json`.
 - **Session start:** the startup digest prints a `RECENT THREADS` block after today's note path, from `bin/fm-log.sh recall --recent --limit 8 --for threads`: captain decisions whose current unanswered hold opened before today, with their last touch, then the 5 most recently touched tickets and projects.
   It is at most 10 lines and 1 KB, prints nothing when the log is off or its index is empty, stale, or unreadable, and never delays or fails the digest; `bin/fm-startup-memory-budget.sh report` shows it on a separate informational line outside the startup-memory budget.
 - **Bearings:** `bin/fm-log.sh export --entities --json` gives each task's tickets, project, and people with the date each was last touched across all work; the Bearings board shows them as small chips on each row, and the `/bearings` chat digest adds them to the end of Captain's Call and Underway lines.
