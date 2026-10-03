@@ -1,0 +1,2 @@
+ok - fm-brief.sh: every crewmate scaffold forbids administering the shared worktree pool
+ok - fm-brief: every ship brief carries the comment, commit-attribution, and test-first rules
