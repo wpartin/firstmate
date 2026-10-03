@@ -1,0 +1,10 @@
+$ bin/fm-auto-learn.sh state t1 nm-finding k 'fact' ; exit=0
+$ bin/fm-auto-learn.sh state t1 ci-fix k 'fact' ; exit=0
+$ bin/fm-auto-learn.sh state t1 blocker k 'fact' ; exit=0
+$ bin/fm-auto-learn.sh state t1 captain-override k 'fact' ; exit=0
+$ bin/fm-auto-learn.sh --nm-fixes ...; exit=0
+learnings after removed triggers:        0
+after learned: auto-learned-a02776d16e13.md
+                                 look things up in the log; see Recall below
+
+after manual learn: auto-learned-a02776d16e13.md
