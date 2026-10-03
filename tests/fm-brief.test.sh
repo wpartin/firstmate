@@ -1659,13 +1659,19 @@ test_ship_briefs_carry_the_working_rules() {
       "$id: ship brief must name the command that measures comments"
     assert_grep "fm-commit-trailer-check.sh" "$brief" \
       "$id: ship brief must name the command that measures commit trailers"
+    assert_grep "build it test first: write one failing test" "$brief" \
+      "$id: ship brief missing the test-first implementation guidance"
+    assert_grep "the first test reproduces it and fails before the fix" "$brief" \
+      "$id: ship brief test-first guidance lost the bug-reproduction rule"
   done
 
   FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-rules-scout some-proj --scout >/dev/null 2>&1 \
     || fail "scout scaffold exited non-zero"
   assert_no_grep "Every comment you write is ONE line" "$home/data/brief-rules-scout/brief.md" \
     "a scout brief must not carry the ship working rules"
-  pass "fm-brief: every ship brief carries the comment and commit-attribution rules"
+  assert_no_grep "Working rules - test first" "$home/data/brief-rules-scout/brief.md" \
+    "a scout brief must not carry the implementation test-first guidance"
+  pass "fm-brief: every ship brief carries the comment, commit-attribution, and test-first rules"
 }
 
 test_script_parses
