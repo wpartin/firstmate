@@ -53,10 +53,6 @@
 # --until`, so a "revisit later" answer is stored as a date instead of a live
 # card.
 #
-# A reason may name firstmate's recommendation as `recommend: <option>`; an
-# answer that never mentions that option files an automatic learning
-# (bin/fm-auto-learn.sh).
-#
 # `answer` records the captain's exact words and resolves the call in the same
 # act. It requires a non-empty captain decision file of at most 8192 bytes and
 # writes a resolution block while preserving the leading hold-set stamp until
@@ -246,20 +242,6 @@ ledger_record() {  # <fm-fleet-ledger.sh args...>
 ledger_answered() {  # <task-id> <mode>
   ledger_record answered "$1" "$2" "${FM_CAPTAIN_ANSWER_SOURCE:-}" \
     "${FM_CAPTAIN_ANSWER_WORDS:-$DECISION_TEXT}"
-}
-
-# A hold reason naming `recommend: <option>` (up to `;` or the end) and an answer
-# whose words never mention that option files an automatic learning.
-auto_learn_override() {  # <task-id> <hold-reason>
-  local rec words
-  case "$2" in *[Rr]ecommend:*) ;; *) return 0 ;; esac
-  rec=${2#*[Rr]ecommend:}; rec=${rec%%;*}
-  rec=$(printf '%s' "$rec" | sed 's/^ *//; s/ *$//')
-  [ -n "$rec" ] || return 0
-  words=${FM_CAPTAIN_ANSWER_WORDS:-$DECISION_TEXT}
-  printf '%s' "$words" | grep -Fqi -- "$rec" && return 0
-  "$SCRIPT_DIR/fm-auto-learn.sh" "$STATE" "$1" captain-override "$1:$DECISION_DIGEST" \
-    "Firstmate recommended $rec; the captain chose otherwise" "$words" >/dev/null 2>&1 || true
 }
 
 PARENT_HOLD_PUBLISHED=0
@@ -1032,7 +1014,7 @@ remove_interrupted_answer_stamp() {  # <task-id>
 }
 
 command_answer() {
-  local id=${1:-} decision_file='' release=0 show state hold_kind hold_reason body outcome recorded_mode occurrence
+  local id=${1:-} decision_file='' release=0 show state hold_kind body outcome recorded_mode occurrence
   [ "$#" -ge 1 ] || { usage >&2; exit 2; }
   shift
   while [ "$#" -gt 0 ]; do
@@ -1051,7 +1033,6 @@ command_answer() {
   show=$TASK_SHOW_OUTPUT
   state=$(show_field "$show" state)
   hold_kind=$(show_field_value "$show" hold_kind)
-  hold_reason=$(show_field_value "$show" hold_reason)
   body=$(show_field "$show" body)
   if [ "$release" = 1 ]; then outcome=released; else outcome=answered; fi
   # The occurrence the parent line names: the record about to be written is
@@ -1130,7 +1111,6 @@ command_answer() {
       || fail "captain-held task $id did not retain its durable resolution record"
     publish_parent_resolution_then_retire "$id" "$occurrence" "$outcome"
     ledger_answered "$id" "$outcome"
-    auto_learn_override "$id" "$hold_reason"
     printf '%s: %s\n' "$outcome" "$id"
     return 0
   fi

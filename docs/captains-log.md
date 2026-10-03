@@ -96,14 +96,11 @@ A project is always named by its basename, so a task whose record carries a loca
 
 ## Automatic learnings
 
-Scripts file a learning at the moment a belief is corrected, with no agent step, through `bin/fm-auto-learn.sh`:
+Only deliberate learnings are filed, through `bin/fm-auto-learn.sh`: a worker's `learned [at=<epoch>]: <fact>` status line, seen by the status classifier's incremental fold.
+A worker uses it only for a real bug or failure that needed diagnosis to fix and would recur, naming the symptom, cause, and fix.
+Firstmate files anything else by hand with `bin/fm-log.sh learn`.
 
-- A worker's `learned [at=<epoch>]: <fact>` status line, and a `resolved` line closing a `blocked` key (the blocker and how it cleared), seen by the status classifier's incremental fold.
-- A captain answer to a hold whose reason names `recommend: <option>` when the answer never mentions that option, seen by `bin/fm-captain-hold.sh answer`.
-- Each `no-mistakes(review|test|lint): <subject>` fix commit on a landed ship branch (squash, merge, or rebase), seen by `bin/fm-teardown.sh`; `no-mistakes axi status` reports only finding counts, so the fix commit's subject stands for the finding.
-- A GitHub check whose latest run failed on one PR commit and passed on a later one, with the fixing commit's subject, seen by `bin/fm-pr-check.sh` when the PR is registered with green checks and again at its merge-time re-record, once CI has settled.
-
-Each is filed with `bin/fm-log.sh learn --auto` as `learnings/auto-<source>-<hash>.md` with `origin: auto` frontmatter and its task and project as sources.
+It is filed with `bin/fm-log.sh learn --auto` as `learnings/auto-<source>-<hash>.md` with `origin: auto` frontmatter and its task and project as sources.
 The hash covers the correction, so the same correction never files twice, and each fact and correction is bounded to a few hundred characters.
 Nothing is filed while the log is off; `FM_AUTO_LEARN=off` also turns them off.
 `/stow` curates these notes like any other.
