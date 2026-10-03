@@ -15,7 +15,7 @@
 # sections when the task genuinely deviates (e.g. working an existing external
 # PR instead of shipping a new one).
 # Ship and scout briefs also get a bounded `## Relevant history` section from
-# the captain's log when the task's tickets, people, or project have history
+# the captain's log when the task id, its tickets, or its people have history
 # (docs/captains-log.md "Recall at the contract points").
 # Usage: fm-brief.sh <task-id> <repo-name> --mode <no-mistakes|direct-PR|local-only> [--publish <on|off>] [--branch-prefix <prefix>] [--forge <none|gerrit> [--shape squash]] [--herdr-lab] [--project-dir <path>]
 #        fm-brief.sh <task-id> <repo-name> --scout [--herdr-lab]
@@ -558,10 +558,14 @@ EOF
 TASK_SECTION=${TASK_SECTION%$'\n'}
 
 # Relevant history: the log's brief-audience recall on this task's structured
-# fields (docs/captains-log.md "Recall"), fenced so its lines never read as brief
+# keys - its id, tickets, and people, never its project alone - (docs/captains-log.md
+# "Recall") after a bounded index update, fenced so its lines never read as brief
 # headings. Log off, an empty result, or any failure adds nothing.
 relevant_history() {
-  local ents pack flags=(--task "$ID" --project "$REPO") value
+  local ents pack value flags=(--task "$ID")
+  # Bring the index up to this task's own rows first; the index waits at most ten seconds for the log lock.
+  FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" FM_DATA_OVERRIDE="$DATA" \
+    "$SCRIPT_DIR/fm-log.sh" index >/dev/null 2>&1 || true
   ents=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" FM_DATA_OVERRIDE="$DATA" \
     "$SCRIPT_DIR/fm-fleet-snapshot.sh" --task-entities "$ID" 2>/dev/null) || ents=
   while IFS= read -r value; do
@@ -572,7 +576,7 @@ relevant_history() {
     "$SCRIPT_DIR/fm-log.sh" recall --for brief --limit 12 "${flags[@]}" "$@" 2>/dev/null; }
   # The task's own open row is not history, so it alone never earns a section.
   history_recall --json | jq -e --arg id "$ID" '([.timeline, .decisions, .learnings] | any(length > 0))
-    or any(.open[]?; .task != $id) or any(.entities[]?; .touches > 0)' >/dev/null 2>&1 || return 0
+    or any(.open[]?; .task != $id)' >/dev/null 2>&1 || return 0
   pack=$(history_recall) || return 0
   pack=$(printf '%s\n' "$pack" | grep -v '^query: ' | head -n 11)
   [ -n "$pack" ] || return 0

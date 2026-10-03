@@ -502,3 +502,43 @@ test_learning_links_follow_every_task_and_refiling() {
   pass "a learning comes back for every task it names, and re-filing replaces stale sources"
 }
 test_learning_links_follow_every_task_and_refiling
+
+test_path_project_files_under_its_name() {
+  local home out
+  home=$(make_home path-project)
+  ledger "$home" '{"v":1,"ts":'"$T0"',"event":"task.dispatched","task":"eng-12-retry","kind":"ship","project":"/srv/repos/billing/","harness":"claude","model":null}' \
+    '{"v":1,"ts":'"$((T0 + 60))"',"event":"task.status","task":"eng-12-retry","state":"done","key":null,"text":"retries in"}'
+  mkdir -p "$home/data/log/projects" "$home/data/log/2026/09/20"
+  printf '# /srv/repos/billing\n\nCaptain prose about deploys.\n\n- 2026-09-20 09:00 Started: old work %%%% fm:aaaaaaaaaaaa %%%%\n' > "$home/data/log/projects/-srv-repos-billing-.md"
+  printf -- '- 09:00 Started old work in [[-srv-repos-billing-]] %%%% fm:aaaaaaaaaaaa %%%%\n' > "$home/data/log/2026/09/20/2026-09-20.md"
+  run_log "$home" sync >/dev/null 2>&1 || fail "sync failed"
+  out=$(run_log "$home" recall --project billing --json) || fail "recall failed: $out"
+  has "$out" "retries in" "the project name recalls the task"
+  lacks "$out" "/srv/repos" "no entity carries the path"
+  out=$(cat "$home/data/log/projects/billing.md" 2>/dev/null; grep -rl "srv-repos\|/srv/repos" "$home/data/log" 2>/dev/null)
+  has "$out" "retries in" "the task lands in the project's note"
+  has "$out" "old work" "the older path-named note merges into it"
+  has "$out" "Captain prose about deploys." "hand-written prose in the older note survives the merge"
+  has "$(cat "$home/data/log/2026/09/20/2026-09-20.md")" "[[billing]]" "an older chip now links the project"
+  lacks "$out" "srv" "no note or chip names the path"
+  pass "a task whose record carries a project path renders and recalls under the project name only"
+}
+test_path_project_files_under_its_name
+
+test_path_repair_survives_a_failed_sync() {
+  local home out
+  home=$(make_home path-crash)
+  ledger "$home" '{"v":1,"ts":'"$T0"',"event":"task.dispatched","task":"eng-12-retry","kind":"ship","project":"/srv/repos/billing/","harness":"claude","model":null}'
+  mkdir -p "$home/data/log/projects" "$home/data/log/queue.md"
+  printf '# /srv/repos/billing\n\nCaptain prose about deploys.\n' > "$home/data/log/projects/-srv-repos-billing-.md"
+  if run_log "$home" sync >/dev/null 2>&1; then fail "sync should fail while queue.md is unwritable"; fi
+  out=$(cat "$home/data/log/projects/"*.md)
+  has "$out" "Captain prose about deploys." "the path-named note survives a sync that fails before flushing"
+  rmdir "$home/data/log/queue.md"
+  run_log "$home" sync >/dev/null 2>&1 || fail "sync failed"
+  [ ! -e "$home/data/log/projects/-srv-repos-billing-.md" ] || fail "the path-named note is removed once merged"
+  out=$(cat "$home/data/log/projects/billing.md")
+  [ "$(grep -c "Captain prose about deploys." <<<"$out")" = 1 ] || fail "prose merged exactly once: $out"
+  pass "a sync that fails after the path repair loses no hand-written prose"
+}
+test_path_repair_survives_a_failed_sync

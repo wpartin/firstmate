@@ -2,7 +2,8 @@
 # tests/fm-log-contract-points.test.sh - recall where firstmate writes: a brief
 # scaffolded for a task with prior history carries a path-free `## Relevant
 # history` section, an empty history or an off log adds nothing, and
-# bin/fm-tasks-axi.sh add prints RELATED: only when the item's entities resolve.
+# history keys only on the task id, tickets, and people, never a project alone,
+# and bin/fm-tasks-axi.sh add prints RELATED: only when those keys resolve.
 # docs/captains-log.md "Recall at the contract points" owns the contract.
 set -u
 
@@ -120,7 +121,47 @@ test_add_prints_related_only_when_entities_resolve() {
   pass "add prints RELATED only when its entities resolve and the log is on"
 }
 
+test_brief_history_is_keyed_never_project_only() {
+  local home out section
+  home=$(make_home keyed)
+  printf '%s\n' \
+    '{"v":1,"ts":'"$((T0 + 300))"',"event":"task.dispatched","task":"eng-99-limits","kind":"ship","project":"billing","harness":"claude","model":null,"tickets":["ENG-99"]}' \
+    '{"v":1,"ts":'"$((T0 + 360))"',"event":"task.status","task":"eng-99-limits","state":"done","key":null,"text":"rate limits raised"}' \
+    >> "$home/state/fleet-ledger.jsonl"
+  in_home "$home" "$ROOT/bin/fm-tasks-axi.sh" add tidy-billing "Tidy billing docs" --repo billing >/dev/null 2>&1 || fail "add failed"
+  out=$(brief_for "$home" tidy-billing billing)
+  assert_not_contains "$out" "Relevant history" "a project alone shares no key"
+  in_home "$home" "$ROOT/bin/fm-tasks-axi.sh" add eng-99-more "Raise more limits" --repo billing --ticket ENG-99 >/dev/null 2>&1 \
+    || fail "add failed"
+  out=$(brief_for "$home" eng-99-more billing)
+  section=$(printf '%s\n' "$out" | awk '/^## Relevant history/{on=1} /^# /{on=0} on')
+  assert_contains "$section" "rate limits raised" "the shared ticket's items come back"
+  assert_not_contains "$section" "jitter" "another ticket's decision stays out"
+  pass "brief history carries only items keyed to the task, never the project alone"
+}
+
+test_brief_history_sees_the_task_own_new_rows() {
+  local home out
+  home=$(make_home fresh)
+  printf '%s\n' '{"v":1,"ts":'"$((T0 + 300))"',"event":"captain.held","task":"late-task","reason":"ship now or wait for Q4?","until":null}' \
+    >> "$home/state/fleet-ledger.jsonl"
+  out=$(brief_for "$home" late-task billing)
+  assert_contains "$out" "ship now or wait for Q4?" "an unsynced record for the briefed task reaches its history"
+  pass "the brief updates the index before recalling the task's own history"
+}
+
+test_add_ignores_a_project_only_title() {
+  local home out
+  home=$(make_home project-title)
+  out=$(in_home "$home" "$ROOT/bin/fm-tasks-axi.sh" add billing-tidy "Tidy billing docs" 2>&1) || fail "add failed: $out"
+  assert_not_contains "$out" "RELATED:" "a title naming only a project"
+  pass "add prints no RELATED for a project named alone"
+}
+
 test_brief_carries_path_free_history
+test_brief_history_is_keyed_never_project_only
+test_brief_history_sees_the_task_own_new_rows
+test_add_ignores_a_project_only_title
 test_empty_history_and_log_off_add_nothing
 test_own_open_row_alone_adds_nothing
 test_add_ignores_similarity_only_names
