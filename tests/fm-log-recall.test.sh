@@ -456,12 +456,14 @@ test_learning_sources_come_back() {
     || fail "learn with sources failed"
   printf 'Ask for the vendor sandbox before load tests.\n' \
     | run_log "$home" learn vendor-sandbox "Vendor sandbox" --task eng-12-retry >/dev/null || fail "learn with a task failed"
-  head -n 6 "$home/data/log/learnings/settlement-timing.md" > "$TMP_ROOT/front"
+  head -n 8 "$home/data/log/learnings/settlement-timing.md" > "$TMP_ROOT/front"
   assert_equals '---
 tasks: []
 tickets: ["ENG-77"]
 projects: ["payments"]
 filed: 2026-09-25
+status: in-force
+reinforced: 2026-09-25
 ---' "$(cat "$TMP_ROOT/front")" "learning frontmatter"
   ledger_text=$(cat "$home/state/fleet-ledger.jsonl")
   has "$ledger_text" '"slug":"settlement-timing","title":"Settlement timing","sources":{"tickets":["eng-77"],"projects":["payments"]}' "learning sources on the ledger"

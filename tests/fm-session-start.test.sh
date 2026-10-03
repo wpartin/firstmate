@@ -734,7 +734,7 @@ EOF
 
   printf '%s\n' '- demo [no-mistakes] - a demo project (added 2026-07-01)' > "$home/data/projects.md"
   : > "$home/data/captain.md"
-  # secondmates.md, captain-shared.md, and learnings.md deliberately absent
+  # secondmates.md and captain-shared.md deliberately absent
 
   out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
 
@@ -752,13 +752,13 @@ EOF
     "digest did not label the shared captain section"
 
   assert_contains "$out" "data/secondmates.md" "digest did not label the secondmates.md section"
-  assert_contains "$out" "data/learnings.md" "digest did not label the learnings.md section"
+  assert_contains "$out" "learnings in force (captain's log view" "digest did not label the learnings view"
 
-  # Exactly four context ABSENT markers (secondmates.md, captain-shared.md,
-  # learnings.md; backlog.md is covered by its own test) - and the
+  # Exactly three context ABSENT markers (secondmates.md, captain-shared.md;
+  # backlog.md is covered by its own test) - and the
   # present-but-empty captain.md must NOT print ABSENT.
   absent_count=$(printf '%s\n' "$out" | grep -c '^ABSENT$')
-  [ "$absent_count" -eq 4 ] || fail "expected 4 ABSENT markers (secondmates.md, captain-shared.md, learnings.md, backlog.md), got $absent_count: $out"
+  [ "$absent_count" -eq 3 ] || fail "expected 3 ABSENT markers (secondmates.md, captain-shared.md, backlog.md), got $absent_count: $out"
 
   cap_section=$(printf '%s\n' "$out" | awk '/^data\/captain\.md$/{flag=1;next}/^data\//{flag=0}flag')
   assert_contains "$cap_section" "(present, empty)" "empty-but-present captain.md was not distinguished from ABSENT"
@@ -2777,6 +2777,13 @@ EOF2
   assert_not_contains "$out" "captain's log:" "a home with the log off mentioned the log"
   assert_absent "$home/config/fleet-ledger" "the log off still turned on the ledger"
   assert_absent "$home/data/log" "the log off still created the log"
+  assert_not_contains "$out" "data/learnings.md (legacy" "a home with no legacy learnings printed a legacy block"
+  printf -- '- keep the legacy lesson visible\n' > "$home/data/learnings.md"
+  out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+  assert_contains "$out" "data/learnings.md (legacy, read-only" "the log off hid the legacy learnings label"
+  assert_contains "$out" "keep the legacy lesson visible" "the log off hid the legacy learnings"
+  assert_absent "$home/data/log" "printing legacy learnings with the log off created the log"
+  rm -f "$home/data/learnings.md"
   rm -f "$home/config/log"
   out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
   assert_contains "$out" "captain's log: today's note is $home/data/log/" "digest did not print today's note path"

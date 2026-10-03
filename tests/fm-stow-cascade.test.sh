@@ -256,7 +256,6 @@ test_receipt_facts_are_complete_and_show_before_and_after() {
   primary=$(new_primary receipt)
   home=$(new_home receipt-home 20)
   printf '%s\n' 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' > "$home/data/captain.md"
-  printf '%s\n' 'bbbbbb' > "$home/data/learnings.md"
   local_record receipt-home "$home" > "$primary/data/secondmates.md"
 
   set +e
@@ -268,9 +267,10 @@ test_receipt_facts_are_complete_and_show_before_and_after() {
   [ "$(value_in "$s" budget_report)" = ok ] || fail "receipt stanza lacks an accounting outcome"
   [ -n "$(value_in "$s" transport)" ] || fail "receipt stanza lacks a transport"
   local file
-  for file in captain.md captain-shared.md learnings.md; do
+  for file in captain.md captain-shared.md; do
     assert_contains "$s" "file=data/$file " "receipt stanza lacks a per-file action input for $file"
   done
+  assert_contains "$s" "view=log-learnings-in-force " "receipt stanza lacks the learnings view accounting"
   [ "$(value_in "$s" budget_status)" = over-budget ] \
     || fail "the over-budget home was not surfaced before curation"
 

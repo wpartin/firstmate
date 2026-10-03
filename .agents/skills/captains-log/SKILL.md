@@ -25,7 +25,7 @@ Work already has recall wired in where it is written: `bin/fm-brief.sh` adds a `
 - A question for the captain reaches the log only as a captain hold: always hold through `bin/fm-captain-hold.sh hold`, never by writing a question into a note.
 - The captain's answer reaches the log only as a recorded answer: `bin/fm-send.sh --resolve-key`, `bin/fm-captain-hold.sh answer`, or the board's bound `answers` intake.
   Whatever channel the captain used, record the captain's own words there; the log nests them under the question.
-- A new learning reaches the log through `/stow`, which mirrors it with `bin/fm-log.sh learn`.
+- A new learning reaches the log through `/stow`, which files it with `bin/fm-log.sh learn`; the log's learning notes are the only learnings store.
 - Use `bin/fm-log.sh add` only for something the captain explicitly asks to have noted that no record carries.
 
 ## Inbox notes from the log

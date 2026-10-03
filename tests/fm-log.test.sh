@@ -367,7 +367,12 @@ test_manual_add_learn_and_unresolved() {
   run_log "$home" add open "Chase the vendor" >/dev/null || fail "repeated add failed"
   printf 'Bounded waits beat hangs.\n' | run_log "$home" learn bounded-waits "Keep waits bounded" >/dev/null \
     || fail "learn failed"
-  assert_equals "# Keep waits bounded
+  assert_equals "---
+filed: 2026-09-24
+status: in-force
+reinforced: 2026-09-24
+---
+# Keep waits bounded
 
 Bounded waits beat hangs." "$(cat "$home/data/log/learnings/bounded-waits.md")" "learning note"
   has "$(cat "$home/state/fleet-ledger.jsonl")" '"event":"learning.filed","task":null,"slug":"bounded-waits","title":"Keep waits bounded"'
@@ -561,3 +566,102 @@ test_enable_turns_on_the_ledger_and_lays_out_the_log
 test_start_defaults_on_and_honors_off_and_a_folder
 test_wait_bounds_a_non_quiet_sync
 test_long_ledger_text_is_recorded_and_rendered_whole
+
+test_learnings_live_only_in_the_log() {
+  local home view n archived
+  home=$(make_home single-store)
+  snapshot "$home"
+  printf 'Stow files learnings here.\n' | run_log "$home" learn stow-files "Stow files learnings" --project firstmate >/dev/null \
+    || fail "learn failed"
+  assert_absent "$home/data/learnings.md" "a filed learning created data/learnings.md"
+  assert_absent "$home/data/memory-archive.md" "a filed learning created data/memory-archive.md"
+  printf 'Obsolete quirk.\n' | run_log "$home" learn obsolete-quirk "Obsolete quirk" >/dev/null || fail "second learn failed"
+  run_log "$home" mark obsolete-quirk archived >/dev/null || fail "mark failed"
+  has "$(cat "$home/data/log/learnings/obsolete-quirk.md")" "Obsolete quirk." "marking kept the text"
+  view=$(run_log "$home" learnings)
+  has "$view" "Stow files learnings here." "the in-force view shows an in-force learning"
+  lacks "$view" "Obsolete quirk" "the in-force view shows an archived learning"
+  view=$(run_log "$home" learnings --max-bytes 60)
+  has "$view" "more: 1 learnings not shown" "the bounded view counts what did not fit"
+  lacks "$view" "Stow files" "the bounded view cut an entry instead of leaving it out"
+  run_log "$home" sync >/dev/null 2>&1 || fail "sync failed"
+  archived=$(run_log "$home" recall quirk)
+  has "$archived" "Obsolete quirk [archived]" "recall finds an archived learning"
+  pass "a filed learning lands only in the log, and archived ones leave the view but stay recallable"
+}
+
+test_legacy_import_is_idempotent() {
+  local home n view
+  home=$(make_home legacy-import)
+  snapshot "$home"
+  printf '%s\n' '<!-- memory tiers: see the stow skill -->' '# Learnings' \
+    '- Branch before editing in a pool slot. <!--a:2026-08-03-->' '- Unconfirmed legacy fact. <!--g-->' > "$home/data/learnings.md"
+  printf '%s\n' '## 2026-08-08 stow' \
+    '- (from learnings.md, tier: perishable, reinforced: 2026-06-30) Away daemon owns triage. [archived: unreinforced 39d]' \
+    > "$home/data/memory-archive.md"
+  cp "$home/data/learnings.md" "$TMP_ROOT/legacy-before"
+  run_log "$home" start >/dev/null 2>&1 || fail "start failed"
+  n=$(find "$home/data/log/learnings" -name 'legacy-*.md' | wc -l | tr -d ' ')
+  assert_equals 3 "$n" "the import made one note per legacy entry"
+  run_log "$home" start >/dev/null 2>&1 || fail "second start failed"
+  run_log "$home" import-legacy >/dev/null || fail "explicit import failed"
+  assert_equals 3 "$(find "$home/data/log/learnings" -name 'legacy-*.md' | wc -l | tr -d ' ')" "a repeated import duplicated notes"
+  cmp -s "$TMP_ROOT/legacy-before" "$home/data/learnings.md" || fail "the import changed the legacy file"
+  view=$(run_log "$home" learnings --status in-force,aging,archived)
+  has "$view" "Branch before editing in a pool slot. [learnings/legacy-" "an in-force legacy entry arrived"
+  has "$view" "reinforced 2026-08-03" "the legacy reinforced date carried over"
+  lacks "$view" "<!--" "a legacy marker leaked into the note"
+  has "$(run_log "$home" learnings --status archived)" "Away daemon owns triage." "an archive entry arrived archived"
+  has "$(run_log "$home" learnings --status aging)" "Unconfirmed legacy fact." "a grace entry arrived aging"
+  pass "the legacy import is idempotent, keeps the old files, and maps markers to statuses"
+}
+
+test_legacy_tiers_decay_on_their_own_clocks() {
+  local home stale slug
+  home=$(make_home legacy-tiers)
+  snapshot "$home"
+  printf '%s\n' '# Learnings' \
+    '- Never restart the shared daemon while runs are active. <!--P-->' \
+    '- CI is red until the runner image updates. <!--p:2026-09-10-->' \
+    '- Branch before editing in a pool slot. <!--a:2026-09-10-->' > "$home/data/learnings.md"
+  TODAY=2026-09-10 run_log "$home" import-legacy >/dev/null || fail "import failed"
+  has "$(cat "$home"/data/log/learnings/*.md)" "tier: pinned" "a pinned entry lost its tier"
+  stale=$(TODAY=2026-09-20 run_log "$home" stale) || fail "stale failed"
+  has "$stale" "in-force perishable 2026-09-10" "a perishable entry kept a 7-day clock"
+  lacks "$stale" "normal" "a normal entry went stale before 30 days"
+  lacks "$stale" "pinned" "a pinned entry went stale"
+  stale=$(TODAY=2026-12-31 run_log "$home" stale) || fail "stale failed"
+  has "$stale" "in-force normal 2026-09-10" "a normal entry went stale after 30 days"
+  lacks "$stale" "pinned" "a pinned entry went stale"
+  while read -r slug _; do
+    TODAY=2026-12-31 run_log "$home" mark "$slug" archived >/dev/null || fail "stow could not archive $slug"
+  done <<<"$stale"
+  slug=$(grep -l "tier: pinned" "$home"/data/log/learnings/*.md | xargs basename | sed 's/\.md$//')
+  if run_log "$home" mark "$slug" archived >/dev/null 2>&1; then fail "a pinned note was archived"; fi
+  assert_equals "- Never restart the shared daemon while runs are active. [learnings/$slug.md, reinforced 2026-09-10]" \
+    "$(run_log "$home" learnings)" "the in-force view is not just the pinned note"
+  if printf 'Refiled.\n' | run_log "$home" learn "$slug" "Refiled" --status archived >/dev/null 2>&1; then
+    fail "learn --status archived re-filed a pinned note"
+  fi
+  if printf 'New.\n' | run_log "$home" learn pinned-new "New" --tier pinned --status aging >/dev/null 2>&1; then
+    fail "learn filed a new pinned note as aging"
+  fi
+  has "$(cat "$home/data/log/learnings/$slug.md")" "status: in-force" "learn left the pinned note in force"
+  [ ! -e "$home/data/log/learnings/pinned-new.md" ] || fail "a refused pinned filing wrote a note"
+  pass "legacy tiers survive import and decay on their own clocks through a stow pass"
+}
+
+test_learnings_view_names_what_the_budget_cut() {
+  local home
+  home=$(make_home view-cut)
+  snapshot "$home"
+  printf 'A learning.\n' | run_log "$home" learn one "One" >/dev/null || fail "learn failed"
+  assert_equals "more: 1 learnings not shown (fm-log.sh recall to find them)" \
+    "$(run_log "$home" learnings --max-bytes 0)" "an exhausted budget hid that learnings exist"
+  pass "an exhausted budget still names the learnings it cut"
+}
+
+test_learnings_live_only_in_the_log
+test_legacy_import_is_idempotent
+test_legacy_tiers_decay_on_their_own_clocks
+test_learnings_view_names_what_the_budget_cut
