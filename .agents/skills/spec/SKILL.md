@@ -12,7 +12,7 @@ metadata:
 
 A spec pins agreed intent so every later step - slicing, implementation, review, and the captain's QA - checks against the same lines.
 Write it from the captain's approved statement (see `align`), the conversation so far, and the captain's own words, never from a widened goal of your own.
-The shape follows Matt Pocock's `to-spec` skill from the mattpocock-skills plugin (MIT licensed); the wording here is paraphrased, with a testing-seam confirmation step and a closing acceptance-checks section added for firstmate.
+The shape follows Matt Pocock's `to-spec` skill from the mattpocock-skills plugin (MIT licensed); the wording here is paraphrased, with a closing acceptance-checks section added for firstmate.
 Synthesize what you already know instead of running a fresh interview; use `align` when the intent itself is still open.
 
 ## Where

@@ -22,7 +22,7 @@ Do this as a fresh read rather than asking the implementation worker, whose cont
 
 ## Shape
 
-Keep it to one screen:
+Keep each item short:
 
 1. **Setup** - the one or two steps to get the change running locally, such as which branch to check out and which command starts it.
 2. **Checks** - numbered steps, each one action and its expected result: "Run `X` - you should see `Y`" or "Open Z and click W - the panel shows V".
