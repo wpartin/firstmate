@@ -1,0 +1,3 @@
+.agents/skills/spec/SKILL.md: name=spec user-invocable=true desc_len=456
+.agents/skills/align/SKILL.md: name=align user-invocable=true desc_len=400
+.agents/skills/qa-plan/SKILL.md: name=qa-plan user-invocable=true desc_len=284

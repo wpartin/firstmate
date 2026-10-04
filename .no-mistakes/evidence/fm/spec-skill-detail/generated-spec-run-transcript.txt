@@ -1,0 +1,14 @@
+I wrote the spec to `./home/data/todo-1/spec.md`. I haven't run or changed anything in `./proj`, and I haven't linked the spec from the backlog item note.
+
+The spec follows your approved statement. It has 22 user stories and 14 acceptance checks. The one seam is the CLI run end to end, as `test.sh` does, which I treated as confirmed per your instruction.
+
+I had to guess a few details, and the spec marks each one as an assumption so you can strike it:
+- **Due date syntax:** `add <text> --due YYYY-MM-DD`.
+- **Numbering:** an item's number is its line position in `~/.todo`, so reordering `list` never changes which item `done` hits.
+- **Completed items:** they stay in the file and in `list`, marked as done.
+- **Today override:** an environment variable lets tests set "today", so overdue checks don't depend on the real date.
+- **Empty list:** `list` with no todo file exits cleanly, with the exact output left open.
+
+Existing `~/.todo` files keep working, with old lines read as open items with no due date.
+
+The spec is still only a proposal until you approve it or send corrections.
