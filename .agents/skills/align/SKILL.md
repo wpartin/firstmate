@@ -41,4 +41,4 @@ Ask the captain to approve or correct it, and revise until the captain approves.
 
 The approved paragraph is the captain's ask by reference, so its substance belongs in the instructions' captain's-intent section next to the captain's own words, and it is what the review pass checks against.
 Record it in the backlog item's note so it survives a restart.
-When the work is large enough to need goal, stories, and acceptance checks written down, load `spec` next; otherwise write the instructions directly.
+When the work is large enough to need a problem, solution, stories, decisions, and acceptance checks written down, load `spec` next; otherwise write the instructions directly.
